@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="JH Assist">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<title>JH Assist 1.0 RC4.1</title>
+<title>JH Assist 1.0.0</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17202b;background:#eef2f5}
 *{box-sizing:border-box}body{margin:0}header{background:#fff;padding:16px;border-bottom:1px solid #d9e0e6;position:sticky;top:0;z-index:10}
@@ -22,7 +22,7 @@ input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1
 </style>
 </head>
 <body>
-<header><div><h1>JH Assist</h1><span class="version">Version 1.0 RC4.1</span></div></header>
+<header><div><h1>JH Assist</h1><span class="version">Version 1.0.0</span></div></header>
 <main>
 <nav class="tabs">
 <button class="tab active" data-view="entry">Leistung</button>
@@ -127,6 +127,9 @@ state.billedMonths=state.billedMonths&&typeof state.billedMonths==='object'?stat
 const $=id=>document.getElementById(id);
 const esc=(s='')=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uuid=()=>crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random();
+const pad2=n=>String(n).padStart(2,'0');
+function localIsoDate(date=new Date()){return `${date.getFullYear()}-${pad2(date.getMonth()+1)}-${pad2(date.getDate())}`}
+function monthLastDate(year,month){return `${year}-${pad2(month)}-${pad2(new Date(year,month,0).getDate())}`}
 function duration(start,end){if(!start||!end)return 0;const [sh,sm]=start.split(':').map(Number),[eh,em]=end.split(':').map(Number);return Math.max(0,(eh*60+em-sh*60-sm)/60)}
 function formatHours(n){return Number(n||0).toLocaleString('de-DE',{minimumFractionDigits:0,maximumFractionDigits:2})+' Std.'}
 function weeksBetween(a,b){if(!a||!b)return 0;const d1=new Date(a+'T12:00:00'),d2=new Date(b+'T12:00:00');return Math.max(0,(d2-d1)/(7*86400000)+1/7)}
@@ -135,28 +138,43 @@ function monthKey(dateOrYear,month){return month===undefined?String(dateOrYear).
 function isBilledMonth(key){return Boolean(state.billedMonths[key])}
 function setChangedAfterBilling(key){if(state.billedMonths[key])state.billedMonths[key].status='changed_after_billing'}
 function logChange({caseId='',month='',action,field='',oldValue='',newValue=''}){state.auditLog.unshift({id:uuid(),timestamp:new Date().toISOString(),caseId,month,action,field,oldValue:String(oldValue??''),newValue:String(newValue??'')});if(state.auditLog.length>1000)state.auditLog.length=1000;if(month)setChangedAfterBilling(month)}
-function activeCases(){return state.cases.filter(c=>c.active!==false).sort((a,b)=>a.name.localeCompare(b.name,'de'))}
+function allCases(){return [...state.cases].sort((a,b)=>a.name.localeCompare(b.name,'de'))}
+function activeCases(){return allCases().filter(c=>c.active!==false)}
 function caseById(id){return state.cases.find(c=>c.id===id)}
 function showView(name){document.querySelectorAll('.view').forEach(v=>v.classList.add('hidden'));$('view-'+name).classList.remove('hidden');document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.view===name));}
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>showView(b.dataset.view));
-function renderSelects(){const list=activeCases();const opts=list.length?list.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join(''):'<option value="">Zuerst Fall anlegen</option>';for(const id of ['serviceCase','hoursCase','reportCase']){const el=$(id);if(!el)continue;const current=el.value;el.innerHTML=opts;if([...el.options].some(o=>o.value===current))el.value=current;}}
+function renderSelects(){
+  const active=activeCases(),all=allCases();
+  const build=list=>list.length?list.map(c=>`<option value="${c.id}">${esc(c.name)}${c.active===false?' (archiviert)':''}</option>`).join(''):'<option value="">Zuerst Fall anlegen</option>';
+  const lists={serviceCase:active,hoursCase:all,reportCase:all};
+  for(const [id,list] of Object.entries(lists)){const el=$(id);if(!el)continue;const current=el.value;el.innerHTML=build(list);if([...el.options].some(o=>o.value===current))el.value=current;}
+}
 function renderCases(){const q=$('caseSearch').value.toLowerCase(),filter=$('caseFilter').value;let list=state.cases.filter(c=>(filter==='all'||(filter==='active'&&c.active!==false)||(filter==='inactive'&&c.active===false))&&[c.name,c.authority,c.officer,c.guardians].join(' ').toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name,'de'));
 $('cases').innerHTML=list.length?list.map(c=>`<div class="item"><strong>${esc(c.name)}</strong>${c.active===false?'<span class="badge">archiviert</span>':''}<div class="muted">${esc(c.authority)} · ${formatHours(c.weeklyHours)} pro Woche · ${esc(c.officer||'keine Sachbearbeitung')}</div><div class="muted">Bewilligung: ${esc(c.approvalFrom||'offen')} bis ${esc(c.approvalTo||'offen')}</div><div class="row" style="margin-top:8px"><button class="secondary small" onclick="editCase('${c.id}')">Bearbeiten</button><button class="${c.active===false?'secondary':'danger'} small" onclick="toggleCase('${c.id}')">${c.active===false?'Reaktivieren':'Archivieren'}</button></div></div>`).join(''):'<p class="muted">Keine passenden Fälle.</p>';}
 function renderServices(){const sorted=[...state.services].sort((a,b)=>(b.date+b.start).localeCompare(a.date+a.start)).slice(0,15);$('services').innerHTML=sorted.length?sorted.map(s=>{const c=caseById(s.caseId),changed=isBilledMonth(monthKey(s.date))&&state.billedMonths[monthKey(s.date)].status==='changed_after_billing';return `<div class="item"><strong>${esc(c?.name||'Unbekannter Fall')}</strong><span class="badge">${formatHours(duration(s.start,s.end))}</span>${changed?'<span class="badge warn">nach Abrechnung geändert</span>':''}<div>${esc(s.date)} · ${esc(s.start)}–${esc(s.end)}</div><div class="muted">${esc(s.activity)}${s.note?' · '+esc(s.note):''}</div><div class="row" style="margin-top:7px"><button class="secondary small" onclick="editService('${s.id}')">Bearbeiten</button><button class="danger small" onclick="deleteService('${s.id}')">Löschen</button></div></div>`}).join(''):'<p class="muted">Noch keine Leistungen erfasst.</p>';}
 function renderPrices(){$('prices').innerHTML=state.prices.length?[...state.prices].sort((a,b)=>b.year-a.year).map(p=>`<div class="item"><strong>${p.year}</strong><div class="muted">Stadt: ${Number(p.city).toLocaleString('de-DE',{style:'currency',currency:'EUR'})} · Landkreis: ${Number(p.county).toLocaleString('de-DE',{style:'currency',currency:'EUR'})}</div></div>`).join(''):'<p class="muted">Noch keine Preise hinterlegt.</p>';}
-function renderHours(){const id=$('hoursCase').value,c=caseById(id),year=Number($('hoursYear').value);if(!c){$('hoursSummary').innerHTML='<p class="muted">Kein aktiver Fall vorhanden.</p>';$('notesList').innerHTML='';return}const sv=state.services.filter(s=>s.caseId===id&&Number(s.date.slice(0,4))===year);const done=sv.reduce((n,s)=>n+duration(s.start,s.end),0);let from=c.approvalFrom,to=c.approvalTo;if(from&&Number(from.slice(0,4))<year)from=year+'-01-01';if(to&&Number(to.slice(0,4))>year)to=year+'-12-31';const approved=weeksBetween(from,to)*Number(c.weeklyHours||0),remaining=approved-done;const p=state.prices.find(x=>Number(x.year)===year);const rate=p?(c.authority==='Stadt'?p.city:p.county):0;$('hoursSummary').innerHTML=`<div class="stats" style="margin-top:16px"><div class="stat"><span class="muted">Jahreskontingent rechnerisch</span><strong>${formatHours(approved)}</strong></div><div class="stat"><span class="muted">Geleistet</span><strong>${formatHours(done)}</strong></div><div class="stat"><span class="muted">Rest</span><strong>${formatHours(remaining)}</strong></div></div><p class="muted">Grundlage: ${c.weeklyHours} Wochenstunden innerhalb des im Kalenderjahr liegenden Bewilligungszeitraums.${rate?' Aktueller Satz: '+Number(rate).toLocaleString('de-DE',{style:'currency',currency:'EUR'})+'.':''}</p>${remaining<0?'<p class="message" style="color:#8b3030">Achtung: Das rechnerische Kontingent ist überschritten.</p>':''}`;
+function renderHours(){const id=$('hoursCase').value,c=caseById(id),year=Number($('hoursYear').value);if(!c){$('hoursSummary').innerHTML='<p class="muted">Kein aktiver Fall vorhanden.</p>';$('notesList').innerHTML='';return}const sv=state.services.filter(s=>s.caseId===id&&Number(s.date.slice(0,4))===year);const done=sv.reduce((n,s)=>n+duration(s.start,s.end),0);let from=c.approvalFrom||year+'-01-01',to=c.approvalTo||year+'-12-31';if(Number(from.slice(0,4))<year)from=year+'-01-01';if(Number(to.slice(0,4))>year)to=year+'-12-31';if(Number(from.slice(0,4))>year||Number(to.slice(0,4))<year){from='';to=''}const approved=weeksBetween(from,to)*Number(c.weeklyHours||0),remaining=approved-done;const p=state.prices.find(x=>Number(x.year)===year);const rate=p?(c.authority==='Stadt'?p.city:p.county):0;$('hoursSummary').innerHTML=`<div class="stats" style="margin-top:16px"><div class="stat"><span class="muted">Jahreskontingent rechnerisch</span><strong>${formatHours(approved)}</strong></div><div class="stat"><span class="muted">Geleistet</span><strong>${formatHours(done)}</strong></div><div class="stat"><span class="muted">Rest</span><strong>${formatHours(remaining)}</strong></div></div><p class="muted">Grundlage: ${c.weeklyHours} Wochenstunden innerhalb des im Kalenderjahr liegenden Bewilligungszeitraums.${rate?' Aktueller Satz: '+Number(rate).toLocaleString('de-DE',{style:'currency',currency:'EUR'})+'.':''}</p>${remaining<0?'<p class="message" style="color:#8b3030">Achtung: Das rechnerische Kontingent ist überschritten.</p>':''}`;
 const notes=sv.filter(s=>s.note).sort((a,b)=>b.date.localeCompare(a.date));$('notesList').innerHTML=notes.length?notes.map(s=>`<div class="item"><strong>${esc(s.date)}</strong><div>${esc(s.note)}</div><div class="muted">${esc(s.start)}–${esc(s.end)}</div></div>`).join(''):'<p class="muted">Für dieses Jahr sind keine Verlaufsnotizen gespeichert.</p>';}
 function renderBillingStatus(){const key=monthKey(Number($('billingYear').value),Number($('billingMonth').value)),entry=state.billedMonths[key];$('billingStatus').innerHTML=!entry?'Status: noch nicht abgerechnet':entry.status==='changed_after_billing'?`<span class="badge warn">geändert nach Abrechnung</span> Letzter Export: ${esc(new Date(entry.exportedAt).toLocaleString('de-DE'))}`:`<span class="badge ok">abgerechnet</span> Export: ${esc(new Date(entry.exportedAt).toLocaleString('de-DE'))}`;}
 function renderAuditLog(){const items=state.auditLog.slice(0,100);$('auditLog').innerHTML=items.length?items.map(x=>{const c=caseById(x.caseId);return `<div class="item"><strong>${esc(new Date(x.timestamp).toLocaleString('de-DE'))}</strong>${x.month?` <span class="badge">${esc(x.month)}</span>`:''}<div>${esc(c?.name||'Allgemein')} – ${esc(x.action)}${x.field?` – ${esc(x.field)}`:''}</div>${x.oldValue||x.newValue?`<div class="muted">${esc(x.oldValue)} → ${esc(x.newValue)}</div>`:''}</div>`}).join(''):'<p class="muted">Noch keine Änderungen nach einer Abrechnung protokolliert.</p>';}
 function renderAll(){renderSelects();renderCases();renderServices();renderPrices();renderHours();renderBillingStatus();renderAuditLog()}
-$('caseForm').onsubmit=e=>{e.preventDefault();const id=$('caseId').value;const obj={id:id||uuid(),name:$('caseName').value.trim(),authority:$('authority').value,weeklyHours:Number($('weeklyHours').value),officer:$('officer').value.trim(),guardians:$('guardians').value.trim(),approvalFrom:$('approvalFrom').value,approvalTo:$('approvalTo').value,sheetName:$('sheetName').value.trim()||$('caseName').value.trim(),active:id?(caseById(id)?.active!==false):true};if(obj.approvalFrom&&obj.approvalTo&&obj.approvalTo<obj.approvalFrom){alert('Das Bewilligungsende liegt vor dem Beginn.');return}if(id)state.cases[state.cases.findIndex(c=>c.id===id)]=obj;else state.cases.push(obj);resetCaseForm();save()};
+$('caseForm').onsubmit=e=>{e.preventDefault();
+  const id=$('caseId').value;
+  const name=$('caseName').value.trim();
+  const sheetName=($('sheetName').value.trim()||name);
+  if(/[\\/?*\[\]:]/.test(sheetName)||sheetName.length>31){alert('Der Tabellenblattname darf höchstens 31 Zeichen lang sein und keines der Zeichen \ / ? * [ ] : enthalten.');return}
+  if(state.cases.some(c=>c.id!==id&&String(c.sheetName||c.name).trim().toLocaleLowerCase('de-DE')===sheetName.toLocaleLowerCase('de-DE'))){alert('Dieser Tabellenblattname ist bereits einem anderen Fall zugeordnet.');return}
+  const obj={id:id||uuid(),name,authority:$('authority').value,weeklyHours:Number($('weeklyHours').value),officer:$('officer').value.trim(),guardians:$('guardians').value.trim(),approvalFrom:$('approvalFrom').value,approvalTo:$('approvalTo').value,sheetName,active:id?(caseById(id)?.active!==false):true};
+  if(obj.approvalFrom&&obj.approvalTo&&obj.approvalTo<obj.approvalFrom){alert('Das Bewilligungsende liegt vor dem Beginn.');return}
+  if(id)state.cases[state.cases.findIndex(c=>c.id===id)]=obj;else state.cases.push(obj);resetCaseForm();save()
+};
 function resetCaseForm(){$('caseForm').reset();$('caseId').value='';$('caseHeading').textContent='Fall anlegen';$('cancelCaseEdit').classList.add('hidden')}
 window.editCase=id=>{const c=caseById(id);if(!c)return;showView('cases');$('caseId').value=c.id;$('caseName').value=c.name;$('authority').value=c.authority;$('weeklyHours').value=c.weeklyHours;$('officer').value=c.officer||'';$('guardians').value=c.guardians||'';$('approvalFrom').value=c.approvalFrom||'';$('approvalTo').value=c.approvalTo||'';$('sheetName').value=c.sheetName||c.name;$('caseHeading').textContent='Fall bearbeiten';$('cancelCaseEdit').classList.remove('hidden');scrollTo({top:0,behavior:'smooth'})};
 window.toggleCase=id=>{const c=caseById(id);if(!c)return;c.active=c.active===false;save()};$('cancelCaseEdit').onclick=resetCaseForm;$('caseSearch').oninput=renderCases;$('caseFilter').onchange=renderCases;
 function minutesOf(time){const [h,m]=time.split(':').map(Number);return h*60+m}
 function overlaps(aStart,aEnd,bStart,bEnd){return minutesOf(aStart)<minutesOf(bEnd)&&minutesOf(bStart)<minutesOf(aEnd)}
 function isQuarterHour(time){return /^(?:[01]\d|2[0-3]):(?:00|15|30|45)$/.test(time)}
-$('serviceForm').onsubmit=e=>{e.preventDefault();const id=$('serviceId').value,caseId=$('serviceCase').value,date=$('date').value,start=$('start').value,end=$('end').value,c=caseById(caseId),existing=id?state.services.find(s=>s.id===id):null;$('serviceMessage').textContent='';if(!c)return;if(!isQuarterHour(start)||!isQuarterHour(end)){$('serviceMessage').textContent='Beginn und Ende müssen im Viertelstundentakt liegen.';return}if(c.approvalFrom&&date<c.approvalFrom||c.approvalTo&&date>c.approvalTo){if(!confirm('Das Datum liegt außerhalb des hinterlegten Bewilligungszeitraums. Trotzdem speichern?'))return}if(state.services.some(s=>s.id!==id&&s.caseId===caseId&&s.date===date)){$('serviceMessage').textContent='Für diesen Fall ist an diesem Tag bereits ein Eintrag vorhanden.';return}if(minutesOf(end)<=minutesOf(start)){$('serviceMessage').textContent='Die Endzeit muss nach der Beginnzeit liegen.';return}const conflict=state.services.find(s=>s.id!==id&&s.date===date&&overlaps(start,end,s.start,s.end));if(conflict){const other=caseById(conflict.caseId);$('serviceMessage').textContent=`Terminüberschneidung mit ${other?.name||'einem anderen Fall'} (${conflict.start}–${conflict.end}). Direkte Anschlusstermine sind erlaubt.`;return}const obj={id:id||uuid(),caseId,date,start,end,activity:$('activity').value.trim(),note:$('note').value.trim(),useForReport:$('reportUse').checked,createdAt:existing?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};if(existing){const tracked={Fall:[existing.caseId,obj.caseId],Datum:[existing.date,obj.date],Beginn:[existing.start,obj.start],Ende:[existing.end,obj.end],Tätigkeit:[existing.activity,obj.activity],Verlaufsnotiz:[existing.note,obj.note],'Für Verlaufsdokumentation':[existing.useForReport!==false,obj.useForReport!==false]};const affectedMonths=new Set([monthKey(existing.date),monthKey(obj.date)]);for(const [field,[oldValue,newValue]] of Object.entries(tracked)){if(String(oldValue??'')!==String(newValue??'')){for(const key of affectedMonths)if(isBilledMonth(key))logChange({caseId:obj.caseId,month:key,action:'Leistung geändert',field,oldValue,newValue})}}state.services[state.services.findIndex(s=>s.id===id)]=obj;$('serviceMessage').textContent='Leistung geändert.';}else{state.services.push(obj);const key=monthKey(date);if(isBilledMonth(key))logChange({caseId,month:key,action:'Leistung nach Abrechnung hinzugefügt',field:'Termin',oldValue:'',newValue:`${date} ${start}–${end}`});$('serviceMessage').textContent='Leistung gespeichert.';}resetServiceForm();save()};
+$('serviceForm').onsubmit=e=>{e.preventDefault();const id=$('serviceId').value,caseId=$('serviceCase').value,date=$('date').value,start=$('start').value,end=$('end').value,c=caseById(caseId),existing=id?state.services.find(s=>s.id===id):null;$('serviceMessage').textContent='';if(!c)return;if(!isQuarterHour(start)||!isQuarterHour(end)){$('serviceMessage').textContent='Beginn und Ende müssen im Viertelstundentakt liegen.';return}if(c.approvalFrom&&date<c.approvalFrom||c.approvalTo&&date>c.approvalTo){if(!confirm('Das Datum liegt außerhalb des hinterlegten Bewilligungszeitraums. Trotzdem speichern?'))return}if(state.services.some(s=>s.id!==id&&s.caseId===caseId&&s.date===date)){$('serviceMessage').textContent='Für diesen Fall ist an diesem Tag bereits ein Eintrag vorhanden.';return}if(minutesOf(end)<=minutesOf(start)){$('serviceMessage').textContent='Die Endzeit muss nach der Beginnzeit liegen.';return}if(duration(start,end)>4&&!confirm(`Der Termin dauert ${formatHours(duration(start,end))}. Ist das korrekt?`))return;const conflict=state.services.find(s=>s.id!==id&&s.date===date&&overlaps(start,end,s.start,s.end));if(conflict){const other=caseById(conflict.caseId);$('serviceMessage').textContent=`Terminüberschneidung mit ${other?.name||'einem anderen Fall'} (${conflict.start}–${conflict.end}). Direkte Anschlusstermine sind erlaubt.`;return}const obj={id:id||uuid(),caseId,date,start,end,activity:$('activity').value.trim(),note:$('note').value.trim(),useForReport:$('reportUse').checked,createdAt:existing?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};if(existing){const tracked={Fall:[existing.caseId,obj.caseId],Datum:[existing.date,obj.date],Beginn:[existing.start,obj.start],Ende:[existing.end,obj.end],Tätigkeit:[existing.activity,obj.activity],Verlaufsnotiz:[existing.note,obj.note],'Für Verlaufsdokumentation':[existing.useForReport!==false,obj.useForReport!==false]};const affectedMonths=new Set([monthKey(existing.date),monthKey(obj.date)]);for(const [field,[oldValue,newValue]] of Object.entries(tracked)){if(String(oldValue??'')!==String(newValue??'')){for(const key of affectedMonths)if(isBilledMonth(key))logChange({caseId:obj.caseId,month:key,action:'Leistung geändert',field,oldValue,newValue})}}state.services[state.services.findIndex(s=>s.id===id)]=obj;$('serviceMessage').textContent='Leistung geändert.';}else{state.services.push(obj);const key=monthKey(date);if(isBilledMonth(key))logChange({caseId,month:key,action:'Leistung nach Abrechnung hinzugefügt',field:'Termin',oldValue:'',newValue:`${date} ${start}–${end}`});$('serviceMessage').textContent='Leistung gespeichert.';}resetServiceForm();save()};
 function resetServiceForm(){$('serviceId').value='';$('serviceHeading').textContent='Leistung erfassen';$('saveServiceBtn').textContent='Leistung speichern';$('cancelServiceEdit').classList.add('hidden');$('note').value='';$('reportUse').checked=true}
 window.editService=id=>{const s=state.services.find(x=>x.id===id);if(!s)return;showView('entry');$('serviceId').value=s.id;$('serviceCase').value=s.caseId;$('date').value=s.date;$('start').value=s.start;$('end').value=s.end;$('activity').value=s.activity||'einzelfallbezogene Tätigkeit';$('note').value=s.note||'';$('reportUse').checked=s.useForReport!==false;$('serviceHeading').textContent='Leistung bearbeiten';$('saveServiceBtn').textContent='Änderung speichern';$('cancelServiceEdit').classList.remove('hidden');scrollTo({top:0,behavior:'smooth'})};
 $('cancelServiceEdit').onclick=resetServiceForm;
@@ -173,8 +191,8 @@ async function exportJsonFile(payload,fileName){
   catch(error){if(error&&error.name==='AbortError')return 'cancelled';console.error(error);alert('Die Datei konnte nicht gespeichert oder geteilt werden.');return 'error'}
 }
 $('exportMasterBtn').onclick=async()=>{
-  const payload={schema:'jh-assist-master-v1',version:'1.0-rc4',exportedAt:new Date().toISOString(),cases:state.cases,prices:state.prices};
-  await exportJsonFile(payload,'JH-Assist-Stammdaten-'+new Date().toISOString().slice(0,10)+'.json');
+  const payload={schema:'jh-assist-master-v1',version:'1.0.0',exportedAt:new Date().toISOString(),cases:state.cases,prices:state.prices};
+  await exportJsonFile(payload,'JH-Assist-Stammdaten-'+localIsoDate()+'.json');
 };
 $('importMasterFile').onchange=async e=>{
   const f=e.target.files[0];if(!f)return;
@@ -191,8 +209,8 @@ $('importMasterFile').onchange=async e=>{
   }catch{alert('Die Datei ist kein gültiger JH-Assist-Stammdatenexport.')}e.target.value='';
 };
 $('exportServicesBtn').onclick=async()=>{
-  const payload={schema:'jh-assist-services-v1',version:'1.0-rc4',exportedAt:new Date().toISOString(),services:state.services,deletedServiceIds:state.deletedServiceIds,auditLog:state.auditLog};
-  await exportJsonFile(payload,'JH-Assist-Leistungen-'+new Date().toISOString().slice(0,10)+'.json');
+  const payload={schema:'jh-assist-services-v1',version:'1.0.0',exportedAt:new Date().toISOString(),services:state.services,deletedServiceIds:state.deletedServiceIds,auditLog:state.auditLog};
+  await exportJsonFile(payload,'JH-Assist-Leistungen-'+localIsoDate()+'.json');
 };
 $('importServicesFile').onchange=async e=>{
   const f=e.target.files[0];if(!f)return;
@@ -211,7 +229,7 @@ $('importServicesFile').onchange=async e=>{
     }
   }catch{alert('Die Datei ist kein gültiger JH-Assist-Leistungsexport.')}e.target.value='';
 };
-$('exportBtn').onclick=async()=>{await exportJsonFile({schema:'jh-assist-backup-v1',version:'1.0-rc4',exportedAt:new Date().toISOString(),...state},'JH-Assist-Vollsicherung-'+new Date().toISOString().slice(0,10)+'.json')};
+$('exportBtn').onclick=async()=>{await exportJsonFile({schema:'jh-assist-backup-v1',version:'1.0.0',exportedAt:new Date().toISOString(),...state},'JH-Assist-Vollsicherung-'+localIsoDate()+'.json')};
 $('importFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!Array.isArray(d.cases)||!Array.isArray(d.services))throw Error();if(confirm('Alle lokalen Daten durch diese Vollsicherung ersetzen?')){state={cases:d.cases,services:d.services,prices:Array.isArray(d.prices)?d.prices:[],auditLog:Array.isArray(d.auditLog)?d.auditLog:[],billedMonths:d.billedMonths&&typeof d.billedMonths==='object'?d.billedMonths:{},deletedServiceIds:Array.isArray(d.deletedServiceIds)?d.deletedServiceIds:[]};save()}}catch{alert('Die Datei ist keine gültige JH-Assist-Vollsicherung.')}e.target.value=''};
 $('clearBtn').onclick=()=>{if(confirm('Wirklich alle lokal gespeicherten Daten löschen?')){state={cases:[],services:[],prices:[],auditLog:[],billedMonths:{},deletedServiceIds:[]};save()}};
 
@@ -248,7 +266,7 @@ async function deliverFile(content,name,type='application/json'){
 async function exportBillingData(){
   const year=Number($('billingYear').value),month=Number($('billingMonth').value),msg=$('billingMessage');
   const monthStart=`${year}-${String(month).padStart(2,'0')}-01`;
-  const monthEnd=new Date(year,month,0).toISOString().slice(0,10);
+  const monthEnd=monthLastDate(year,month);
   const cases=state.cases.filter(c=>(!c.approvalFrom||c.approvalFrom<=monthEnd)&&(!c.approvalTo||c.approvalTo>=monthStart));
   if(!cases.length){msg.textContent='Für diesen Monat gibt es keine abzurechnenden Fälle.';return}
   const price=state.prices.find(p=>Number(p.year)===year);if(!price){msg.textContent=`Für ${year} sind noch keine Preise hinterlegt.`;return}
@@ -267,7 +285,7 @@ async function exportBillingData(){
     active:c.active!==false
   }));
   const exportedAt=new Date().toISOString(),key=monthKey(year,month);
-  const payload={schema:'jh-assist-billing-v1',version:'1.0-rc3',exportedAt,year,month,cases:exportCases,services,prices:state.prices};
+  const payload={schema:'jh-assist-billing-v1',version:'1.0.0',exportedAt,year,month,cases:exportCases,services,prices:state.prices};
   const fileName=`JH-Assist-Abrechnungsdaten_${year}-${String(month).padStart(2,'0')}.json`;
   try{
     await deliverFile(JSON.stringify(payload,null,2),fileName);
@@ -291,7 +309,7 @@ function createReport(){
   if(!items.length){$('reportOutput').value='';msg.textContent='Im gewählten Zeitraum liegen keine für den Bericht markierten Verlaufsnotizen vor.';return}
   const from=$('reportFrom').value||items[0].date,to=$('reportTo').value||items[items.length-1].date;
   const lines=[];lines.push(`Verlaufsdokumentation – ${c.name}`);lines.push(`Berichtszeitraum: ${from} bis ${to}`);lines.push('');
-  lines.push('Grundlage');lines.push(`Die folgende Verlaufsdokumentation beruht ausschließlich auf ${items.length} dokumentierten Verlaufsnotiz(en). Er ist fachlich zu prüfen, zu gewichten und vor Verwendung zu überarbeiten.`);lines.push('');
+  lines.push('Grundlage');lines.push(`Die folgende Verlaufsdokumentation beruht ausschließlich auf ${items.length} dokumentierten Verlaufsnotiz(en). Sie ist fachlich zu prüfen, zu gewichten und vor Verwendung zu überarbeiten.`);lines.push('');
   lines.push('Chronologischer Verlauf');
   for(const s of items)lines.push(`${s.date}, ${s.start}–${s.end}: ${s.note.trim()}`);
   lines.push('');lines.push('Zusammenfassende Verlaufsdarstellung');
@@ -303,15 +321,15 @@ function createReport(){
 }
 $('exportBillingDataBtn').onclick=exportBillingData;$('billingMonth').onchange=renderBillingStatus;$('billingYear').oninput=renderBillingStatus;
 $('createReportBtn').onclick=createReport;
-$('copyReportBtn').onclick=async()=>{if(!$('reportOutput').value)return;await navigator.clipboard.writeText($('reportOutput').value);$('reportMessage').textContent='Verlaufsdokumentation wurde kopiert.'};
+$('copyReportBtn').onclick=async()=>{if(!$('reportOutput').value)return;try{if(navigator.clipboard?.writeText)await navigator.clipboard.writeText($('reportOutput').value);else throw Error();}catch{$('reportOutput').focus();$('reportOutput').select();document.execCommand('copy')}$('reportMessage').textContent='Verlaufsdokumentation wurde kopiert.'};
 $('downloadReportBtn').onclick=()=>{const c=caseById($('reportCase').value);if(!$('reportOutput').value)return;downloadBlob($('reportOutput').value,`Verlaufsdokumentation_${(c?.name||'Fall').replace(/[^a-z0-9äöüß_-]+/gi,'_')}.txt`,'text/plain;charset=utf-8')};
 const quarterTimes=[];for(let h=0;h<24;h++)for(const m of [0,15,30,45])quarterTimes.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);const timeOptions=quarterTimes.map(t=>`<option value="${t}">${t}</option>`).join('');$('start').innerHTML=timeOptions;$('end').innerHTML=timeOptions;$('start').value='09:00';$('end').value='10:00';
 
 const monthNames=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 $('billingMonth').innerHTML=monthNames.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');$('billingMonth').value=String(new Date().getMonth()+1);$('billingYear').value=new Date().getFullYear();
-const reportStart=new Date();reportStart.setMonth(reportStart.getMonth()-6);$('reportFrom').value=reportStart.toISOString().slice(0,10);$('reportTo').value=new Date().toISOString().slice(0,10);
+const reportStart=new Date();reportStart.setMonth(reportStart.getMonth()-6);$('reportFrom').value=localIsoDate(reportStart);$('reportTo').value=localIsoDate();
 
-const today=new Date().toISOString().slice(0,10);$('date').value=today;$('hoursYear').value=new Date().getFullYear();$('priceYear').value=new Date().getFullYear();renderAll();
+const today=localIsoDate();$('date').value=today;$('hoursYear').value=new Date().getFullYear();$('priceYear').value=new Date().getFullYear();renderAll();
 if('serviceWorker' in navigator&&location.protocol.startsWith('http')){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(error=>console.warn('Service Worker konnte nicht registriert werden.',error)));}
 </script>
 </body>
