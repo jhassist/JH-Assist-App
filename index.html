@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#174e70">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="JH Assist">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<title>JH Assist 1.0 RC3</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17202b;background:#eef2f5}
+*{box-sizing:border-box}body{margin:0}header{background:#fff;padding:16px;border-bottom:1px solid #d9e0e6;position:sticky;top:0;z-index:10}
+header div{max-width:820px;margin:auto;display:flex;justify-content:space-between;align-items:center}h1{font-size:22px;margin:0}.version{font-size:12px;color:#637080}
+main{max-width:820px;margin:auto;padding:14px}.tabs{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin-bottom:14px}.tab{background:#dfe8ee;color:#20303d;padding:10px 5px}.tab.active{background:#174e70;color:#fff}
+.card{background:#fff;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 10px rgba(0,0,0,.055)}h2{font-size:18px;margin:0 0 14px}h3{font-size:15px;margin:18px 0 10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.full{grid-column:1/-1}label{font-size:13px;font-weight:650;display:block;margin-bottom:5px}
+input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1px solid #cbd4dc;padding:11px;background:#fff}textarea{min-height:95px;resize:vertical}button{border:0;background:#174e70;color:#fff;font-weight:700;cursor:pointer}.secondary{background:#e5ebef;color:#17202b}.danger{background:#8b3030}.small{width:auto;padding:8px 11px;font-size:13px}.row{display:flex;gap:8px;flex-wrap:wrap}.item{padding:13px 0;border-top:1px solid #e5e9ed}.item:first-child{border-top:0}.muted{color:#667483;font-size:13px}.hidden{display:none!important}.badge{display:inline-block;padding:3px 8px;border-radius:99px;background:#e6edf2;font-size:12px;margin-left:6px}.badge.warn{background:#fff1c7}.badge.ok{background:#dcefe4}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.stat{background:#f3f6f8;padding:12px;border-radius:12px}.stat strong{font-size:20px;display:block}.message{margin-top:10px;font-weight:600}.toolbar{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.toolbar>div{flex:1;min-width:170px}
+@media(max-width:600px){.grid,.stats{grid-template-columns:1fr}.full{grid-column:auto}.tabs{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<header><div><h1>JH Assist</h1><span class="version">Version 1.0 RC3</span></div></header>
+<main>
+<nav class="tabs">
+<button class="tab active" data-view="entry">Leistung</button>
+<button class="tab" data-view="cases">Fälle</button>
+<button class="tab" data-view="hours">Stunden</button>
+<button class="tab" data-view="billing">Abrechnung</button>
+<button class="tab" data-view="reports">Verlaufsdokumentation</button>
+<button class="tab" data-view="settings">Einstellungen</button>
+</nav>
+
+<section id="view-entry" class="view">
+<div class="card"><h2 id="serviceHeading">Leistung erfassen</h2>
+<form id="serviceForm" class="grid">
+<input id="serviceId" type="hidden">
+<div class="full"><label>Fall</label><select id="serviceCase" required></select></div>
+<div><label>Datum</label><input id="date" type="date" required></div>
+<div></div>
+<div><label>Beginn</label><select id="start" required></select></div>
+<div><label>Ende</label><select id="end" required></select></div>
+<div class="full"><label>Tätigkeit</label><input id="activity" value="einzelfallbezogene Tätigkeit" required></div>
+<div class="full"><label>Verlaufsnotiz (optional)</label><textarea id="note" placeholder="Kurze sachliche Notiz zum Verlauf"></textarea></div>
+<div class="full"><label style="display:flex;gap:9px;align-items:center;font-weight:600"><input id="reportUse" type="checkbox" checked style="width:auto"> Für die Verlaufsdokumentation verwenden</label></div>
+<div class="full row"><button id="saveServiceBtn" type="submit" class="small">Leistung speichern</button><button id="cancelServiceEdit" type="button" class="secondary small hidden">Bearbeitung abbrechen</button></div>
+</form><p id="serviceMessage" class="message muted"></p></div>
+<div class="card"><h2>Letzte Leistungen</h2><div id="services"></div></div>
+</section>
+
+<section id="view-cases" class="view hidden">
+<div class="card"><h2 id="caseHeading">Fall anlegen</h2>
+<form id="caseForm" class="grid">
+<input id="caseId" type="hidden">
+<div class="full"><label>Name des Kindes / Fallname</label><input id="caseName" required></div>
+<div><label>Jugendamt</label><select id="authority"><option value="Stadt">Stadt Lüneburg</option><option value="Landkreis">Landkreis Lüneburg</option></select></div>
+<div><label>Wochenstunden</label><input id="weeklyHours" type="number" min="0" step="0.25" required></div>
+<div class="full"><label>Mitarbeiter/in im Jugendamt</label><input id="officer"></div>
+<div class="full"><label>Sorgeberechtigte</label><input id="guardians"></div>
+<div><label>Bewilligung von</label><input id="approvalFrom" type="date"></div>
+<div><label>Bewilligung bis</label><input id="approvalTo" type="date"></div>
+<div class="full"><label>Tabellenblatt in der Excel-Ausgabe</label><input id="sheetName" placeholder="wird sonst aus dem Fallnamen gebildet"></div>
+<div class="full row"><button type="submit" class="small">Fall speichern</button><button id="cancelCaseEdit" type="button" class="secondary small hidden">Bearbeitung abbrechen</button></div>
+</form></div>
+<div class="card"><h2>Fälle</h2><div class="toolbar"><div><label>Suche</label><input id="caseSearch" placeholder="Name, Jugendamt oder Sachbearbeitung"></div><div><label>Anzeige</label><select id="caseFilter"><option value="active">Aktive Fälle</option><option value="all">Alle Fälle</option><option value="inactive">Archivierte Fälle</option></select></div></div><div id="cases"></div></div>
+</section>
+
+<section id="view-hours" class="view hidden">
+<div class="card"><h2>Stundenkonto</h2><div class="toolbar"><div><label>Fall</label><select id="hoursCase"></select></div><div><label>Kalenderjahr</label><input id="hoursYear" type="number" min="2020" max="2100"></div></div><div id="hoursSummary"></div></div>
+<div class="card"><h2>Verlaufsnotizen</h2><div id="notesList"></div></div>
+</section>
+
+<section id="view-billing" class="view hidden">
+<div class="card"><h2>Monatsabrechnung vorbereiten</h2>
+<p class="muted">Für den zuverlässigen Export wird die Originalvorlage auf dem Windows-PC durch Microsoft Excel selbst befüllt. Dadurch bleiben Rahmen, Formeln und Drucklayout erhalten.</p>
+<div class="grid">
+<div><label>Monat</label><select id="billingMonth"></select></div>
+<div><label>Jahr</label><input id="billingYear" type="number" min="2020" max="2100"></div>
+<div class="full"><button id="exportBillingDataBtn" type="button">Abrechnungsdaten herunterladen</button></div>
+</div>
+<p id="billingMessage" class="message muted"></p><div id="billingStatus" class="muted" style="margin-top:10px"></div>
+</div>
+<div class="card"><h2>Danach am Windows-PC</h2>
+<ol class="muted"><li>Die heruntergeladene JSON-Datei speichern.</li><li><strong>START-EXCEL-EXPORT.cmd</strong> aus dem Ordner <strong>excel-engine</strong> starten.</li><li>JSON-Datei und Excel-Vorlage auswählen.</li><li>Die fertige Monatsdatei wird durch Microsoft Excel erzeugt.</li></ol>
+</div>
+</section>
+
+<section id="view-reports" class="view hidden">
+<div class="card"><h2>Verlaufsdokumentation</h2>
+<p class="muted">Diese Version erstellt einen nachvollziehbaren Arbeitsentwurf ausschließlich aus den markierten Verlaufsnotizen. Es werden keine Inhalte ergänzt oder erfunden.</p>
+<div class="grid">
+<div class="full"><label>Fall</label><select id="reportCase"></select></div>
+<div><label>Zeitraum von</label><input id="reportFrom" type="date"></div>
+<div><label>bis</label><input id="reportTo" type="date"></div>
+<div class="full"><button id="createReportBtn" type="button">Verlaufsdokumentation erstellen</button></div>
+<div class="full"><label>Verlaufsdokumentation</label><textarea id="reportOutput" style="min-height:360px" placeholder="Hier erscheint die Verlaufsdokumentation"></textarea></div>
+<div class="full row"><button id="copyReportBtn" type="button" class="secondary small">Text kopieren</button><button id="downloadReportBtn" type="button" class="secondary small">Als Textdatei speichern</button></div>
+</div><p id="reportMessage" class="message muted"></p>
+</div>
+</section>
+
+<section id="view-settings" class="view hidden">
+<div class="card"><h2>Jährliche Preise</h2>
+<form id="priceForm" class="grid"><div><label>Jahr</label><input id="priceYear" type="number" min="2020" max="2100" required></div><div></div><div><label>Preis Stadt je Fachleistungsstunde (€)</label><input id="priceCity" type="number" min="0" step="0.01" required></div><div><label>Preis Landkreis je Fachleistungsstunde (€)</label><input id="priceCounty" type="number" min="0" step="0.01" required></div><div class="full"><button type="submit">Preise speichern</button></div></form><div id="prices"></div></div>
+<div class="card"><h2>Änderungsprotokoll</h2><div id="auditLog"></div></div>
+<div class="card"><h2>Datensicherung</h2><div class="row"><button id="exportBtn" type="button" class="secondary small">Sicherung exportieren</button><label class="secondary small" style="cursor:pointer">Sicherung importieren<input id="importFile" type="file" accept="application/json" hidden></label><button id="clearBtn" type="button" class="danger small">Alle lokalen Daten löschen</button></div><p class="muted">Die Daten werden in dieser Version nur lokal in diesem Browser gespeichert.</p></div>
+</section>
+</main>
+<script>
+const KEY='jh-assist-v09';
+const old=JSON.parse(localStorage.getItem('jh-assist-v08')||localStorage.getItem('jh-assist-v07')||localStorage.getItem('jh-assist-v06')||localStorage.getItem('jh-assist-v03')||localStorage.getItem('jh-assist-v02')||localStorage.getItem('jh-assist-v01')||'null');
+let state=JSON.parse(localStorage.getItem(KEY)||'null')||{cases:old?.cases||[],services:old?.services||[],prices:old?.prices||[],auditLog:old?.auditLog||[],billedMonths:old?.billedMonths||{}};
+state.auditLog=Array.isArray(state.auditLog)?state.auditLog:[];
+state.billedMonths=state.billedMonths&&typeof state.billedMonths==='object'?state.billedMonths:{};
+const $=id=>document.getElementById(id);
+const esc=(s='')=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uuid=()=>crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random();
+function duration(start,end){if(!start||!end)return 0;const [sh,sm]=start.split(':').map(Number),[eh,em]=end.split(':').map(Number);return Math.max(0,(eh*60+em-sh*60-sm)/60)}
+function formatHours(n){return Number(n||0).toLocaleString('de-DE',{minimumFractionDigits:0,maximumFractionDigits:2})+' Std.'}
+function weeksBetween(a,b){if(!a||!b)return 0;const d1=new Date(a+'T12:00:00'),d2=new Date(b+'T12:00:00');return Math.max(0,(d2-d1)/(7*86400000)+1/7)}
+function save(){localStorage.setItem(KEY,JSON.stringify(state));renderAll()}
+function monthKey(dateOrYear,month){return month===undefined?String(dateOrYear).slice(0,7):`${dateOrYear}-${String(month).padStart(2,'0')}`}
+function isBilledMonth(key){return Boolean(state.billedMonths[key])}
+function setChangedAfterBilling(key){if(state.billedMonths[key])state.billedMonths[key].status='changed_after_billing'}
+function logChange({caseId='',month='',action,field='',oldValue='',newValue=''}){state.auditLog.unshift({id:uuid(),timestamp:new Date().toISOString(),caseId,month,action,field,oldValue:String(oldValue??''),newValue:String(newValue??'')});if(state.auditLog.length>1000)state.auditLog.length=1000;if(month)setChangedAfterBilling(month)}
+function activeCases(){return state.cases.filter(c=>c.active!==false).sort((a,b)=>a.name.localeCompare(b.name,'de'))}
+function caseById(id){return state.cases.find(c=>c.id===id)}
+function showView(name){document.querySelectorAll('.view').forEach(v=>v.classList.add('hidden'));$('view-'+name).classList.remove('hidden');document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.view===name));}
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>showView(b.dataset.view));
+function renderSelects(){const list=activeCases();const opts=list.length?list.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join(''):'<option value="">Zuerst Fall anlegen</option>';for(const id of ['serviceCase','hoursCase','reportCase']){const el=$(id);if(!el)continue;const current=el.value;el.innerHTML=opts;if([...el.options].some(o=>o.value===current))el.value=current;}}
+function renderCases(){const q=$('caseSearch').value.toLowerCase(),filter=$('caseFilter').value;let list=state.cases.filter(c=>(filter==='all'||(filter==='active'&&c.active!==false)||(filter==='inactive'&&c.active===false))&&[c.name,c.authority,c.officer,c.guardians].join(' ').toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name,'de'));
+$('cases').innerHTML=list.length?list.map(c=>`<div class="item"><strong>${esc(c.name)}</strong>${c.active===false?'<span class="badge">archiviert</span>':''}<div class="muted">${esc(c.authority)} · ${formatHours(c.weeklyHours)} pro Woche · ${esc(c.officer||'keine Sachbearbeitung')}</div><div class="muted">Bewilligung: ${esc(c.approvalFrom||'offen')} bis ${esc(c.approvalTo||'offen')}</div><div class="row" style="margin-top:8px"><button class="secondary small" onclick="editCase('${c.id}')">Bearbeiten</button><button class="${c.active===false?'secondary':'danger'} small" onclick="toggleCase('${c.id}')">${c.active===false?'Reaktivieren':'Archivieren'}</button></div></div>`).join(''):'<p class="muted">Keine passenden Fälle.</p>';}
+function renderServices(){const sorted=[...state.services].sort((a,b)=>(b.date+b.start).localeCompare(a.date+a.start)).slice(0,15);$('services').innerHTML=sorted.length?sorted.map(s=>{const c=caseById(s.caseId),changed=isBilledMonth(monthKey(s.date))&&state.billedMonths[monthKey(s.date)].status==='changed_after_billing';return `<div class="item"><strong>${esc(c?.name||'Unbekannter Fall')}</strong><span class="badge">${formatHours(duration(s.start,s.end))}</span>${changed?'<span class="badge warn">nach Abrechnung geändert</span>':''}<div>${esc(s.date)} · ${esc(s.start)}–${esc(s.end)}</div><div class="muted">${esc(s.activity)}${s.note?' · '+esc(s.note):''}</div><div class="row" style="margin-top:7px"><button class="secondary small" onclick="editService('${s.id}')">Bearbeiten</button><button class="danger small" onclick="deleteService('${s.id}')">Löschen</button></div></div>`}).join(''):'<p class="muted">Noch keine Leistungen erfasst.</p>';}
+function renderPrices(){$('prices').innerHTML=state.prices.length?[...state.prices].sort((a,b)=>b.year-a.year).map(p=>`<div class="item"><strong>${p.year}</strong><div class="muted">Stadt: ${Number(p.city).toLocaleString('de-DE',{style:'currency',currency:'EUR'})} · Landkreis: ${Number(p.county).toLocaleString('de-DE',{style:'currency',currency:'EUR'})}</div></div>`).join(''):'<p class="muted">Noch keine Preise hinterlegt.</p>';}
+function renderHours(){const id=$('hoursCase').value,c=caseById(id),year=Number($('hoursYear').value);if(!c){$('hoursSummary').innerHTML='<p class="muted">Kein aktiver Fall vorhanden.</p>';$('notesList').innerHTML='';return}const sv=state.services.filter(s=>s.caseId===id&&Number(s.date.slice(0,4))===year);const done=sv.reduce((n,s)=>n+duration(s.start,s.end),0);let from=c.approvalFrom,to=c.approvalTo;if(from&&Number(from.slice(0,4))<year)from=year+'-01-01';if(to&&Number(to.slice(0,4))>year)to=year+'-12-31';const approved=weeksBetween(from,to)*Number(c.weeklyHours||0),remaining=approved-done;const p=state.prices.find(x=>Number(x.year)===year);const rate=p?(c.authority==='Stadt'?p.city:p.county):0;$('hoursSummary').innerHTML=`<div class="stats" style="margin-top:16px"><div class="stat"><span class="muted">Jahreskontingent rechnerisch</span><strong>${formatHours(approved)}</strong></div><div class="stat"><span class="muted">Geleistet</span><strong>${formatHours(done)}</strong></div><div class="stat"><span class="muted">Rest</span><strong>${formatHours(remaining)}</strong></div></div><p class="muted">Grundlage: ${c.weeklyHours} Wochenstunden innerhalb des im Kalenderjahr liegenden Bewilligungszeitraums.${rate?' Aktueller Satz: '+Number(rate).toLocaleString('de-DE',{style:'currency',currency:'EUR'})+'.':''}</p>${remaining<0?'<p class="message" style="color:#8b3030">Achtung: Das rechnerische Kontingent ist überschritten.</p>':''}`;
+const notes=sv.filter(s=>s.note).sort((a,b)=>b.date.localeCompare(a.date));$('notesList').innerHTML=notes.length?notes.map(s=>`<div class="item"><strong>${esc(s.date)}</strong><div>${esc(s.note)}</div><div class="muted">${esc(s.start)}–${esc(s.end)}</div></div>`).join(''):'<p class="muted">Für dieses Jahr sind keine Verlaufsnotizen gespeichert.</p>';}
+function renderBillingStatus(){const key=monthKey(Number($('billingYear').value),Number($('billingMonth').value)),entry=state.billedMonths[key];$('billingStatus').innerHTML=!entry?'Status: noch nicht abgerechnet':entry.status==='changed_after_billing'?`<span class="badge warn">geändert nach Abrechnung</span> Letzter Export: ${esc(new Date(entry.exportedAt).toLocaleString('de-DE'))}`:`<span class="badge ok">abgerechnet</span> Export: ${esc(new Date(entry.exportedAt).toLocaleString('de-DE'))}`;}
+function renderAuditLog(){const items=state.auditLog.slice(0,100);$('auditLog').innerHTML=items.length?items.map(x=>{const c=caseById(x.caseId);return `<div class="item"><strong>${esc(new Date(x.timestamp).toLocaleString('de-DE'))}</strong>${x.month?` <span class="badge">${esc(x.month)}</span>`:''}<div>${esc(c?.name||'Allgemein')} – ${esc(x.action)}${x.field?` – ${esc(x.field)}`:''}</div>${x.oldValue||x.newValue?`<div class="muted">${esc(x.oldValue)} → ${esc(x.newValue)}</div>`:''}</div>`}).join(''):'<p class="muted">Noch keine Änderungen nach einer Abrechnung protokolliert.</p>';}
+function renderAll(){renderSelects();renderCases();renderServices();renderPrices();renderHours();renderBillingStatus();renderAuditLog()}
+$('caseForm').onsubmit=e=>{e.preventDefault();const id=$('caseId').value;const obj={id:id||uuid(),name:$('caseName').value.trim(),authority:$('authority').value,weeklyHours:Number($('weeklyHours').value),officer:$('officer').value.trim(),guardians:$('guardians').value.trim(),approvalFrom:$('approvalFrom').value,approvalTo:$('approvalTo').value,sheetName:$('sheetName').value.trim()||$('caseName').value.trim(),active:id?(caseById(id)?.active!==false):true};if(obj.approvalFrom&&obj.approvalTo&&obj.approvalTo<obj.approvalFrom){alert('Das Bewilligungsende liegt vor dem Beginn.');return}if(id)state.cases[state.cases.findIndex(c=>c.id===id)]=obj;else state.cases.push(obj);resetCaseForm();save()};
+function resetCaseForm(){$('caseForm').reset();$('caseId').value='';$('caseHeading').textContent='Fall anlegen';$('cancelCaseEdit').classList.add('hidden')}
+window.editCase=id=>{const c=caseById(id);if(!c)return;showView('cases');$('caseId').value=c.id;$('caseName').value=c.name;$('authority').value=c.authority;$('weeklyHours').value=c.weeklyHours;$('officer').value=c.officer||'';$('guardians').value=c.guardians||'';$('approvalFrom').value=c.approvalFrom||'';$('approvalTo').value=c.approvalTo||'';$('sheetName').value=c.sheetName||c.name;$('caseHeading').textContent='Fall bearbeiten';$('cancelCaseEdit').classList.remove('hidden');scrollTo({top:0,behavior:'smooth'})};
+window.toggleCase=id=>{const c=caseById(id);if(!c)return;c.active=c.active===false;save()};$('cancelCaseEdit').onclick=resetCaseForm;$('caseSearch').oninput=renderCases;$('caseFilter').onchange=renderCases;
+function minutesOf(time){const [h,m]=time.split(':').map(Number);return h*60+m}
+function overlaps(aStart,aEnd,bStart,bEnd){return minutesOf(aStart)<minutesOf(bEnd)&&minutesOf(bStart)<minutesOf(aEnd)}
+function isQuarterHour(time){return /^(?:[01]\d|2[0-3]):(?:00|15|30|45)$/.test(time)}
+$('serviceForm').onsubmit=e=>{e.preventDefault();const id=$('serviceId').value,caseId=$('serviceCase').value,date=$('date').value,start=$('start').value,end=$('end').value,c=caseById(caseId),existing=id?state.services.find(s=>s.id===id):null;$('serviceMessage').textContent='';if(!c)return;if(!isQuarterHour(start)||!isQuarterHour(end)){$('serviceMessage').textContent='Beginn und Ende müssen im Viertelstundentakt liegen.';return}if(c.approvalFrom&&date<c.approvalFrom||c.approvalTo&&date>c.approvalTo){if(!confirm('Das Datum liegt außerhalb des hinterlegten Bewilligungszeitraums. Trotzdem speichern?'))return}if(state.services.some(s=>s.id!==id&&s.caseId===caseId&&s.date===date)){$('serviceMessage').textContent='Für diesen Fall ist an diesem Tag bereits ein Eintrag vorhanden.';return}if(minutesOf(end)<=minutesOf(start)){$('serviceMessage').textContent='Die Endzeit muss nach der Beginnzeit liegen.';return}const conflict=state.services.find(s=>s.id!==id&&s.date===date&&overlaps(start,end,s.start,s.end));if(conflict){const other=caseById(conflict.caseId);$('serviceMessage').textContent=`Terminüberschneidung mit ${other?.name||'einem anderen Fall'} (${conflict.start}–${conflict.end}). Direkte Anschlusstermine sind erlaubt.`;return}const obj={id:id||uuid(),caseId,date,start,end,activity:$('activity').value.trim(),note:$('note').value.trim(),useForReport:$('reportUse').checked,createdAt:existing?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};if(existing){const tracked={Fall:[existing.caseId,obj.caseId],Datum:[existing.date,obj.date],Beginn:[existing.start,obj.start],Ende:[existing.end,obj.end],Tätigkeit:[existing.activity,obj.activity],Verlaufsnotiz:[existing.note,obj.note],'Für Verlaufsdokumentation':[existing.useForReport!==false,obj.useForReport!==false]};const affectedMonths=new Set([monthKey(existing.date),monthKey(obj.date)]);for(const [field,[oldValue,newValue]] of Object.entries(tracked)){if(String(oldValue??'')!==String(newValue??'')){for(const key of affectedMonths)if(isBilledMonth(key))logChange({caseId:obj.caseId,month:key,action:'Leistung geändert',field,oldValue,newValue})}}state.services[state.services.findIndex(s=>s.id===id)]=obj;$('serviceMessage').textContent='Leistung geändert.';}else{state.services.push(obj);const key=monthKey(date);if(isBilledMonth(key))logChange({caseId,month:key,action:'Leistung nach Abrechnung hinzugefügt',field:'Termin',oldValue:'',newValue:`${date} ${start}–${end}`});$('serviceMessage').textContent='Leistung gespeichert.';}resetServiceForm();save()};
+function resetServiceForm(){$('serviceId').value='';$('serviceHeading').textContent='Leistung erfassen';$('saveServiceBtn').textContent='Leistung speichern';$('cancelServiceEdit').classList.add('hidden');$('note').value='';$('reportUse').checked=true}
+window.editService=id=>{const s=state.services.find(x=>x.id===id);if(!s)return;showView('entry');$('serviceId').value=s.id;$('serviceCase').value=s.caseId;$('date').value=s.date;$('start').value=s.start;$('end').value=s.end;$('activity').value=s.activity||'einzelfallbezogene Tätigkeit';$('note').value=s.note||'';$('reportUse').checked=s.useForReport!==false;$('serviceHeading').textContent='Leistung bearbeiten';$('saveServiceBtn').textContent='Änderung speichern';$('cancelServiceEdit').classList.remove('hidden');scrollTo({top:0,behavior:'smooth'})};
+$('cancelServiceEdit').onclick=resetServiceForm;
+window.deleteService=id=>{const s=state.services.find(x=>x.id===id);if(!s||!confirm('Diesen Leistungseintrag wirklich löschen?'))return;const key=monthKey(s.date);if(isBilledMonth(key))logChange({caseId:s.caseId,month:key,action:'Leistung nach Abrechnung gelöscht',field:'Termin',oldValue:`${s.date} ${s.start}–${s.end}`,newValue:''});state.services=state.services.filter(x=>x.id!==id);save()};
+$('priceForm').onsubmit=e=>{e.preventDefault();const year=Number($('priceYear').value),obj={year,city:Number($('priceCity').value),county:Number($('priceCounty').value)};const i=state.prices.findIndex(p=>Number(p.year)===year);if(i>=0)state.prices[i]=obj;else state.prices.push(obj);save()};
+$('hoursCase').onchange=renderHours;$('hoursYear').oninput=renderHours;
+$('exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify({version:'0.9',exportedAt:new Date().toISOString(),...state},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='JH-Assist-Sicherung-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
+$('importFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!Array.isArray(d.cases)||!Array.isArray(d.services))throw Error();if(confirm('Lokale Daten durch die Sicherung ersetzen?')){state={cases:d.cases,services:d.services,prices:Array.isArray(d.prices)?d.prices:[],auditLog:Array.isArray(d.auditLog)?d.auditLog:[],billedMonths:d.billedMonths&&typeof d.billedMonths==='object'?d.billedMonths:{}};save()}}catch{alert('Die Datei ist keine gültige JH-Assist-Sicherung.')}e.target.value=''};
+$('clearBtn').onclick=()=>{if(confirm('Wirklich alle lokal gespeicherten Daten löschen?')){state={cases:[],services:[],prices:[],auditLog:[],billedMonths:{}};save()}};
+
+function downloadBlob(content,name,type='application/json'){
+  const blob=new Blob([content],{type});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500)
+}
+async function deliverFile(content,name,type='application/json'){
+  if(typeof File!=='undefined'&&navigator.share&&navigator.canShare){
+    const file=new File([content],name,{type});
+    if(navigator.canShare({files:[file]})){
+      await navigator.share({files:[file],title:name});
+      return 'shared';
+    }
+  }
+  downloadBlob(content,name,type);
+  return 'downloaded';
+}
+async function exportBillingData(){
+  const year=Number($('billingYear').value),month=Number($('billingMonth').value),msg=$('billingMessage');
+  const monthStart=`${year}-${String(month).padStart(2,'0')}-01`;
+  const monthEnd=new Date(year,month,0).toISOString().slice(0,10);
+  const cases=state.cases.filter(c=>(!c.approvalFrom||c.approvalFrom<=monthEnd)&&(!c.approvalTo||c.approvalTo>=monthStart));
+  if(!cases.length){msg.textContent='Für diesen Monat gibt es keine abzurechnenden Fälle.';return}
+  const price=state.prices.find(p=>Number(p.year)===year);if(!price){msg.textContent=`Für ${year} sind noch keine Preise hinterlegt.`;return}
+  const services=state.services.filter(s=>Number(s.date.slice(0,4))===year&&Number(s.date.slice(5,7))===month);
+  const exportCases=cases.map(c=>({
+    id:c.id,
+    name:c.name,
+    sheetName:(c.sheetName||c.name||'').trim(),
+    carrier:c.authority==='Stadt'?'Stadt':'Landkreis',
+    authority:c.authority,
+    weeklyHours:Number(c.weeklyHours||0),
+    officer:c.officer||'',
+    guardians:c.guardians||'',
+    approvalFrom:c.approvalFrom||'',
+    approvalTo:c.approvalTo||'',
+    active:c.active!==false
+  }));
+  const exportedAt=new Date().toISOString(),key=monthKey(year,month);
+  const payload={schema:'jh-assist-billing-v1',version:'1.0-rc3',exportedAt,year,month,cases:exportCases,services,prices:state.prices};
+  const fileName=`JH-Assist-Abrechnungsdaten_${year}-${String(month).padStart(2,'0')}.json`;
+  try{
+    await deliverFile(JSON.stringify(payload,null,2),fileName);
+  }catch(error){
+    if(error&&error.name==='AbortError'){msg.textContent='Speichern oder Teilen wurde abgebrochen.';return}
+    msg.textContent='Die Abrechnungsdaten konnten nicht gespeichert oder geteilt werden.';
+    console.error(error);return
+  }
+  state.billedMonths[key]={exportedAt,status:'billed'};
+  state.auditLog.unshift({id:uuid(),timestamp:exportedAt,caseId:'',month:key,action:'Abrechnungsdaten erzeugt',field:'',oldValue:'',newValue:''});
+  localStorage.setItem(KEY,JSON.stringify(state));renderAll();
+  msg.textContent=`Abrechnungsdaten für ${cases.length} im Monat relevante Fälle wurden gespeichert beziehungsweise geteilt.`;
+}
+function reportServices(){
+  const id=$('reportCase').value,from=$('reportFrom').value,to=$('reportTo').value;
+  return state.services.filter(s=>s.caseId===id&&s.note&&s.useForReport!==false&&(!from||s.date>=from)&&(!to||s.date<=to)).sort((a,b)=>(a.date+a.start).localeCompare(b.date+b.start));
+}
+function createReport(){
+  const c=caseById($('reportCase').value),items=reportServices(),msg=$('reportMessage');
+  if(!c){msg.textContent='Bitte einen Fall auswählen.';return}
+  if(!items.length){$('reportOutput').value='';msg.textContent='Im gewählten Zeitraum liegen keine für den Bericht markierten Verlaufsnotizen vor.';return}
+  const from=$('reportFrom').value||items[0].date,to=$('reportTo').value||items[items.length-1].date;
+  const lines=[];lines.push(`Verlaufsdokumentation – ${c.name}`);lines.push(`Berichtszeitraum: ${from} bis ${to}`);lines.push('');
+  lines.push('Grundlage');lines.push(`Die folgende Verlaufsdokumentation beruht ausschließlich auf ${items.length} dokumentierten Verlaufsnotiz(en). Er ist fachlich zu prüfen, zu gewichten und vor Verwendung zu überarbeiten.`);lines.push('');
+  lines.push('Chronologischer Verlauf');
+  for(const s of items)lines.push(`${s.date}, ${s.start}–${s.end}: ${s.note.trim()}`);
+  lines.push('');lines.push('Zusammenfassende Verlaufsdarstellung');
+  lines.push(`Im Berichtszeitraum fanden ${items.length} dokumentierte Kontakte im Rahmen der einzelfallbezogenen Tätigkeit statt. Die nachfolgenden Feststellungen geben die dokumentierten Beobachtungen und Arbeitsinhalte in chronologischer Form wieder:`);
+  for(const s of items)lines.push(`- ${s.note.trim()}`);
+  lines.push('');lines.push('Abschließende fachliche Einordnung');
+  lines.push('Bitte ergänzen: Entwicklung im Berichtszeitraum, erreichte beziehungsweise nicht erreichte Hilfeplanziele, Ressourcen, bestehender Unterstützungsbedarf und fachliche Empfehlung für den weiteren Hilfeverlauf.');
+  $('reportOutput').value=lines.join('\n');msg.textContent='Verlaufsdokumentation erstellt. Es wurden keine nicht dokumentierten Tatsachen ergänzt.';
+}
+$('exportBillingDataBtn').onclick=exportBillingData;$('billingMonth').onchange=renderBillingStatus;$('billingYear').oninput=renderBillingStatus;
+$('createReportBtn').onclick=createReport;
+$('copyReportBtn').onclick=async()=>{if(!$('reportOutput').value)return;await navigator.clipboard.writeText($('reportOutput').value);$('reportMessage').textContent='Verlaufsdokumentation wurde kopiert.'};
+$('downloadReportBtn').onclick=()=>{const c=caseById($('reportCase').value);if(!$('reportOutput').value)return;downloadBlob($('reportOutput').value,`Verlaufsdokumentation_${(c?.name||'Fall').replace(/[^a-z0-9äöüß_-]+/gi,'_')}.txt`,'text/plain;charset=utf-8')};
+const quarterTimes=[];for(let h=0;h<24;h++)for(const m of [0,15,30,45])quarterTimes.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);const timeOptions=quarterTimes.map(t=>`<option value="${t}">${t}</option>`).join('');$('start').innerHTML=timeOptions;$('end').innerHTML=timeOptions;$('start').value='09:00';$('end').value='10:00';
+
+const monthNames=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+$('billingMonth').innerHTML=monthNames.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');$('billingMonth').value=String(new Date().getMonth()+1);$('billingYear').value=new Date().getFullYear();
+const reportStart=new Date();reportStart.setMonth(reportStart.getMonth()-6);$('reportFrom').value=reportStart.toISOString().slice(0,10);$('reportTo').value=new Date().toISOString().slice(0,10);
+
+const today=new Date().toISOString().slice(0,10);$('date').value=today;$('hoursYear').value=new Date().getFullYear();$('priceYear').value=new Date().getFullYear();renderAll();
+if('serviceWorker' in navigator&&location.protocol.startsWith('http')){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(error=>console.warn('Service Worker konnte nicht registriert werden.',error)));}
+</script>
+</body>
+</html>
