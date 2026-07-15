@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="JH Assist">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<title>JH Assist 1.0 RC4</title>
+<title>JH Assist 1.0 RC4.1</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17202b;background:#eef2f5}
 *{box-sizing:border-box}body{margin:0}header{background:#fff;padding:16px;border-bottom:1px solid #d9e0e6;position:sticky;top:0;z-index:10}
@@ -22,7 +22,7 @@ input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1
 </style>
 </head>
 <body>
-<header><div><h1>JH Assist</h1><span class="version">Version 1.0 RC4</span></div></header>
+<header><div><h1>JH Assist</h1><span class="version">Version 1.0 RC4.1</span></div></header>
 <main>
 <nav class="tabs">
 <button class="tab active" data-view="entry">Leistung</button>
@@ -216,14 +216,30 @@ $('importFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{co
 $('clearBtn').onclick=()=>{if(confirm('Wirklich alle lokal gespeicherten Daten löschen?')){state={cases:[],services:[],prices:[],auditLog:[],billedMonths:{},deletedServiceIds:[]};save()}};
 
 function downloadBlob(content,name,type='application/json'){
-  const blob=new Blob([content],{type});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500)
+  const blob=new Blob([content],{type});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=name;
+  a.style.display='none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{URL.revokeObjectURL(url);a.remove()},3000);
+}
+function isAppleMobile(){
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 }
 async function deliverFile(content,name,type='application/json'){
-  if(typeof File!=='undefined'&&navigator.share&&navigator.canShare){
-    const file=new File([content],name,{type});
-    if(navigator.canShare({files:[file]})){
-      await navigator.share({files:[file],title:name});
-      return 'shared';
+  if(isAppleMobile()&&typeof File!=='undefined'&&navigator.share&&navigator.canShare){
+    try{
+      const file=new File([content],name,{type});
+      if(navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:name});
+        return 'shared';
+      }
+    }catch(error){
+      if(error&&error.name==='AbortError')throw error;
+      console.warn('Teilen nicht verfügbar; Datei wird stattdessen heruntergeladen.',error);
     }
   }
   downloadBlob(content,name,type);
