@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="JH Assist">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<title>JH Assist 1.0 RC3</title>
+<title>JH Assist 1.0 RC4</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17202b;background:#eef2f5}
 *{box-sizing:border-box}body{margin:0}header{background:#fff;padding:16px;border-bottom:1px solid #d9e0e6;position:sticky;top:0;z-index:10}
@@ -22,7 +22,7 @@ input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1
 </style>
 </head>
 <body>
-<header><div><h1>JH Assist</h1><span class="version">Version 1.0 RC3</span></div></header>
+<header><div><h1>JH Assist</h1><span class="version">Version 1.0 RC4</span></div></header>
 <main>
 <nav class="tabs">
 <button class="tab active" data-view="entry">Leistung</button>
@@ -105,13 +105,23 @@ input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1
 <div class="card"><h2>Jährliche Preise</h2>
 <form id="priceForm" class="grid"><div><label>Jahr</label><input id="priceYear" type="number" min="2020" max="2100" required></div><div></div><div><label>Preis Stadt je Fachleistungsstunde (€)</label><input id="priceCity" type="number" min="0" step="0.01" required></div><div><label>Preis Landkreis je Fachleistungsstunde (€)</label><input id="priceCounty" type="number" min="0" step="0.01" required></div><div class="full"><button type="submit">Preise speichern</button></div></form><div id="prices"></div></div>
 <div class="card"><h2>Änderungsprotokoll</h2><div id="auditLog"></div></div>
-<div class="card"><h2>Datensicherung</h2><div class="row"><button id="exportBtn" type="button" class="secondary small">Sicherung exportieren</button><label class="secondary small" style="cursor:pointer">Sicherung importieren<input id="importFile" type="file" accept="application/json" hidden></label><button id="clearBtn" type="button" class="danger small">Alle lokalen Daten löschen</button></div><p class="muted">Die Daten werden in dieser Version nur lokal in diesem Browser gespeichert.</p></div>
+<div class="card"><h2>Datentransfer PC ↔ iPhone</h2>
+<p class="muted">Der PC verwaltet Fälle und Preise. Auf dem iPhone werden Leistungen und Verlaufsnotizen erfasst.</p>
+<h3>Vom PC zum iPhone</h3>
+<div class="row"><button id="exportMasterBtn" type="button" class="secondary small">Stammdaten fürs iPhone exportieren</button><label class="secondary small" style="cursor:pointer">Stammdaten importieren<input id="importMasterFile" type="file" accept="application/json" hidden></label></div>
+<p class="muted">Beim Import werden Fälle und Preise aktualisiert. Bereits erfasste Leistungen auf dem iPhone bleiben erhalten.</p>
+<h3>Vom iPhone zum PC</h3>
+<div class="row"><button id="exportServicesBtn" type="button" class="secondary small">Leistungen für den PC exportieren</button><label class="secondary small" style="cursor:pointer">Leistungen importieren<input id="importServicesFile" type="file" accept="application/json" hidden></label></div>
+<p class="muted">Beim Import werden neue und geänderte Leistungen übernommen. Auf dem iPhone gelöschte Leistungen werden auch am PC entfernt.</p>
+</div>
+<div class="card"><h2>Vollständige Datensicherung</h2><div class="row"><button id="exportBtn" type="button" class="secondary small">Vollsicherung exportieren</button><label class="secondary small" style="cursor:pointer">Vollsicherung importieren<input id="importFile" type="file" accept="application/json" hidden></label><button id="clearBtn" type="button" class="danger small">Alle lokalen Daten löschen</button></div><p class="muted">Die Daten werden weiterhin ausschließlich lokal in diesem Browser beziehungsweise auf diesem Gerät gespeichert.</p></div>
 </section>
 </main>
 <script>
 const KEY='jh-assist-v09';
 const old=JSON.parse(localStorage.getItem('jh-assist-v08')||localStorage.getItem('jh-assist-v07')||localStorage.getItem('jh-assist-v06')||localStorage.getItem('jh-assist-v03')||localStorage.getItem('jh-assist-v02')||localStorage.getItem('jh-assist-v01')||'null');
-let state=JSON.parse(localStorage.getItem(KEY)||'null')||{cases:old?.cases||[],services:old?.services||[],prices:old?.prices||[],auditLog:old?.auditLog||[],billedMonths:old?.billedMonths||{}};
+let state=JSON.parse(localStorage.getItem(KEY)||'null')||{cases:old?.cases||[],services:old?.services||[],prices:old?.prices||[],auditLog:old?.auditLog||[],billedMonths:old?.billedMonths||{},deletedServiceIds:old?.deletedServiceIds||[]};
+state.deletedServiceIds=Array.isArray(state.deletedServiceIds)?state.deletedServiceIds:[];
 state.auditLog=Array.isArray(state.auditLog)?state.auditLog:[];
 state.billedMonths=state.billedMonths&&typeof state.billedMonths==='object'?state.billedMonths:{};
 const $=id=>document.getElementById(id);
@@ -150,12 +160,60 @@ $('serviceForm').onsubmit=e=>{e.preventDefault();const id=$('serviceId').value,c
 function resetServiceForm(){$('serviceId').value='';$('serviceHeading').textContent='Leistung erfassen';$('saveServiceBtn').textContent='Leistung speichern';$('cancelServiceEdit').classList.add('hidden');$('note').value='';$('reportUse').checked=true}
 window.editService=id=>{const s=state.services.find(x=>x.id===id);if(!s)return;showView('entry');$('serviceId').value=s.id;$('serviceCase').value=s.caseId;$('date').value=s.date;$('start').value=s.start;$('end').value=s.end;$('activity').value=s.activity||'einzelfallbezogene Tätigkeit';$('note').value=s.note||'';$('reportUse').checked=s.useForReport!==false;$('serviceHeading').textContent='Leistung bearbeiten';$('saveServiceBtn').textContent='Änderung speichern';$('cancelServiceEdit').classList.remove('hidden');scrollTo({top:0,behavior:'smooth'})};
 $('cancelServiceEdit').onclick=resetServiceForm;
-window.deleteService=id=>{const s=state.services.find(x=>x.id===id);if(!s||!confirm('Diesen Leistungseintrag wirklich löschen?'))return;const key=monthKey(s.date);if(isBilledMonth(key))logChange({caseId:s.caseId,month:key,action:'Leistung nach Abrechnung gelöscht',field:'Termin',oldValue:`${s.date} ${s.start}–${s.end}`,newValue:''});state.services=state.services.filter(x=>x.id!==id);save()};
+window.deleteService=id=>{const s=state.services.find(x=>x.id===id);if(!s||!confirm('Diesen Leistungseintrag wirklich löschen?'))return;const key=monthKey(s.date);if(isBilledMonth(key))logChange({caseId:s.caseId,month:key,action:'Leistung nach Abrechnung gelöscht',field:'Termin',oldValue:`${s.date} ${s.start}–${s.end}`,newValue:''});state.services=state.services.filter(x=>x.id!==id);if(!state.deletedServiceIds.includes(id))state.deletedServiceIds.push(id);save()};
 $('priceForm').onsubmit=e=>{e.preventDefault();const year=Number($('priceYear').value),obj={year,city:Number($('priceCity').value),county:Number($('priceCounty').value)};const i=state.prices.findIndex(p=>Number(p.year)===year);if(i>=0)state.prices[i]=obj;else state.prices.push(obj);save()};
 $('hoursCase').onchange=renderHours;$('hoursYear').oninput=renderHours;
-$('exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify({version:'0.9',exportedAt:new Date().toISOString(),...state},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='JH-Assist-Sicherung-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
-$('importFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!Array.isArray(d.cases)||!Array.isArray(d.services))throw Error();if(confirm('Lokale Daten durch die Sicherung ersetzen?')){state={cases:d.cases,services:d.services,prices:Array.isArray(d.prices)?d.prices:[],auditLog:Array.isArray(d.auditLog)?d.auditLog:[],billedMonths:d.billedMonths&&typeof d.billedMonths==='object'?d.billedMonths:{}};save()}}catch{alert('Die Datei ist keine gültige JH-Assist-Sicherung.')}e.target.value=''};
-$('clearBtn').onclick=()=>{if(confirm('Wirklich alle lokal gespeicherten Daten löschen?')){state={cases:[],services:[],prices:[],auditLog:[],billedMonths:{}};save()}};
+function mergeById(existing,incoming){
+  const map=new Map(existing.map(item=>[item.id,item]));
+  for(const item of incoming)if(item&&item.id)map.set(item.id,item);
+  return [...map.values()];
+}
+async function exportJsonFile(payload,fileName){
+  try{return await deliverFile(JSON.stringify(payload,null,2),fileName)}
+  catch(error){if(error&&error.name==='AbortError')return 'cancelled';console.error(error);alert('Die Datei konnte nicht gespeichert oder geteilt werden.');return 'error'}
+}
+$('exportMasterBtn').onclick=async()=>{
+  const payload={schema:'jh-assist-master-v1',version:'1.0-rc4',exportedAt:new Date().toISOString(),cases:state.cases,prices:state.prices};
+  await exportJsonFile(payload,'JH-Assist-Stammdaten-'+new Date().toISOString().slice(0,10)+'.json');
+};
+$('importMasterFile').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{
+    const d=JSON.parse(await f.text());
+    if(d.schema!=='jh-assist-master-v1'||!Array.isArray(d.cases)||!Array.isArray(d.prices))throw Error();
+    if(confirm(`Stammdaten importieren?\n\n${d.cases.length} Fälle und ${d.prices.length} Preisjahr(e) werden übernommen. Bereits erfasste Leistungen bleiben erhalten.`)){
+      state.cases=d.cases;
+      state.prices=d.prices;
+      state.auditLog.unshift({id:uuid(),timestamp:new Date().toISOString(),caseId:'',month:'',action:'Stammdaten importiert',field:'',oldValue:'',newValue:`${d.cases.length} Fälle`});
+      save();
+      alert('Stammdaten wurden importiert. Leistungen und Verlaufsnotizen blieben erhalten.');
+    }
+  }catch{alert('Die Datei ist kein gültiger JH-Assist-Stammdatenexport.')}e.target.value='';
+};
+$('exportServicesBtn').onclick=async()=>{
+  const payload={schema:'jh-assist-services-v1',version:'1.0-rc4',exportedAt:new Date().toISOString(),services:state.services,deletedServiceIds:state.deletedServiceIds,auditLog:state.auditLog};
+  await exportJsonFile(payload,'JH-Assist-Leistungen-'+new Date().toISOString().slice(0,10)+'.json');
+};
+$('importServicesFile').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{
+    const d=JSON.parse(await f.text());
+    if(d.schema!=='jh-assist-services-v1'||!Array.isArray(d.services))throw Error();
+    const deleted=Array.isArray(d.deletedServiceIds)?d.deletedServiceIds:[];
+    if(confirm(`Leistungen importieren?\n\n${d.services.length} Leistungseinträge werden abgeglichen. ${deleted.length} auf dem Quellgerät gelöschte Einträge werden entfernt.`)){
+      const deletedSet=new Set(deleted);
+      state.services=mergeById(state.services.filter(s=>!deletedSet.has(s.id)),d.services.filter(s=>!deletedSet.has(s.id)));
+      state.deletedServiceIds=[...new Set([...state.deletedServiceIds,...deleted])];
+      if(Array.isArray(d.auditLog))state.auditLog=mergeById(state.auditLog,d.auditLog).sort((a,b)=>(b.timestamp||'').localeCompare(a.timestamp||''));
+      state.auditLog.unshift({id:uuid(),timestamp:new Date().toISOString(),caseId:'',month:'',action:'Leistungen importiert',field:'',oldValue:'',newValue:`${d.services.length} Einträge`});
+      save();
+      alert('Leistungen und Verlaufsnotizen wurden importiert. Fälle und Preise blieben unverändert.');
+    }
+  }catch{alert('Die Datei ist kein gültiger JH-Assist-Leistungsexport.')}e.target.value='';
+};
+$('exportBtn').onclick=async()=>{await exportJsonFile({schema:'jh-assist-backup-v1',version:'1.0-rc4',exportedAt:new Date().toISOString(),...state},'JH-Assist-Vollsicherung-'+new Date().toISOString().slice(0,10)+'.json')};
+$('importFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!Array.isArray(d.cases)||!Array.isArray(d.services))throw Error();if(confirm('Alle lokalen Daten durch diese Vollsicherung ersetzen?')){state={cases:d.cases,services:d.services,prices:Array.isArray(d.prices)?d.prices:[],auditLog:Array.isArray(d.auditLog)?d.auditLog:[],billedMonths:d.billedMonths&&typeof d.billedMonths==='object'?d.billedMonths:{},deletedServiceIds:Array.isArray(d.deletedServiceIds)?d.deletedServiceIds:[]};save()}}catch{alert('Die Datei ist keine gültige JH-Assist-Vollsicherung.')}e.target.value=''};
+$('clearBtn').onclick=()=>{if(confirm('Wirklich alle lokal gespeicherten Daten löschen?')){state={cases:[],services:[],prices:[],auditLog:[],billedMonths:{},deletedServiceIds:[]};save()}};
 
 function downloadBlob(content,name,type='application/json'){
   const blob=new Blob([content],{type});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500)
