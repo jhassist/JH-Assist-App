@@ -1,51 +1,52 @@
 'use strict';
 
 const APP_VERSION = '1.1.0';
-const STORAGE_KEY = 'jh-assist-v09';
-const LEGACY_KEYS = [
-  'jh-assist-v08',
-  'jh-assist-v07',
-  'jh-assist-v06',
-  'jh-assist-v03',
-  'jh-assist-v02',
-  'jh-assist-v01'
-];
-const DEFAULT_ACTIVITY = 'einzelfallbezogene Tätigkeit';
-const LEGACY_TIMESTAMP = '1970-01-01T00:00:00.000Z';
+const KEY = 'jh-assist-v09';
+const CLOUD_SCHEMA = 'jh-assist-cloud-v1';
+const CLOUD_FILE_DEFAULT = 'jh-assist-data.json';
+const SYNC_CONFIG_KEY = 'jh-assist-sync-config-v1';
+const DEVICE_ID_KEY = 'jh-assist-device-id-v1';
+const MIGRATION_AT_KEY = 'jh-assist-migration-at-v1';
+const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
+const GRAPH_SCOPES = ['Files.ReadWrite.AppFolder'];
 
 const $ = id => document.getElementById(id);
-const esc = (value = '') => String(value).replace(/[&<>"']/g, character => ({
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;'
-}[character]));
-const uuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-const pad2 = value => String(value).padStart(2, '0');
+const esc = (s = '') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uuid = () => crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
+const pad2 = n => String(n).padStart(2, '0');
 const nowIso = () => new Date().toISOString();
+const validIso = value => typeof value === 'string' && !Number.isNaN(Date.parse(value));
+const timestampOf = (item, fallback = '') => validIso(item?.updatedAt) ? item.updatedAt : validIso(item?.createdAt) ? item.createdAt : validIso(item?.timestamp) ? item.timestamp : fallback;
 
-function safeParse(text, fallback = null) {
-  try {
-    return text ? JSON.parse(text) : fallback;
-  } catch (error) {
-    console.warn('Gespeicherte Daten konnten nicht gelesen werden.', error);
-    return fallback;
-  }
-}
-
-function localDateString(date = new Date()) {
+function localIsoDate(date = new Date()) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
-
-function lastDateOfMonth(year, month) {
-  const day = new Date(year, month, 0).getDate();
-  return `${year}-${pad2(month)}-${pad2(day)}`;
+function monthLastDate(year, month) {
+  return `${year}-${pad2(month)}-${pad2(new Date(year, month, 0).getDate())}`;
 }
-
-function validTimestamp(value, fallback = LEGACY_TIMESTAMP) {
-  const parsed = Date.parse(String(value || ''));
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : fallback;
+function duration(start, end) {
+  if (!start || !end) return 0;
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  return Math.max(0, (eh * 60 + em - sh * 60 - sm) / 60);
+}
+function formatHours(n) {
+  return Number(n || 0).toLocaleString('de-DE', {minimumFractionDigits: 0, maximumFractionDigits: 2}) + ' Std.';
+}
+function weeksBetween(a, b) {
+  if (!a || !b) return 0;
+  const d1 = new Date(a + 'T12:00:00');
+  const d2 = new Date(b + 'T12:00:00');
+  return Math.max(0, (d2 - d1) / (7 * 86400000) + 1 / 7);
+}
+function monthKey(dateOrYear, month) {
+  return month === undefined ? String(dateOrYear).slice(0, 7) : `${dateOrYear}-${String(month).padStart(2, '0')}`;
+}
+function isAppleMobile() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+function isWindows() {
+  return /Windows/i.test(navigator.userAgent);
 }
 
 function defaultState() {
@@ -55,413 +56,222 @@ function defaultState() {
     prices: [],
     auditLog: [],
     billedMonths: {},
-    deletedServices: [],
     deletedServiceIds: [],
-    syncMigratedAt: nowIso()
+    tombstones: {services: {}},
+    meta: {schema: CLOUD_SCHEMA, version: APP_VERSION, updatedAt: nowIso(), updatedBy: ''}
   };
 }
 
-function firstLegacyState() {
-  for (const key of LEGACY_KEYS) {
-    const parsed = safeParse(localStorage.getItem(key));
-    if (parsed) return parsed;
+const old = JSON.parse(
+  localStorage.getItem('jh-assist-v08') ||
+  localStorage.getItem('jh-assist-v07') ||
+  localStorage.getItem('jh-assist-v06') ||
+  localStorage.getItem('jh-assist-v03') ||
+  localStorage.getItem('jh-assist-v02') ||
+  localStorage.getItem('jh-assist-v01') ||
+  'null'
+);
+const migrationAt = localStorage.getItem(MIGRATION_AT_KEY) || nowIso();
+localStorage.setItem(MIGRATION_AT_KEY, migrationAt);
+
+function normalizeState(input, fallbackTimestamp = migrationAt) {
+  const source = input && typeof input === 'object' ? input : defaultState();
+  const result = defaultState();
+  const fallback = validIso(source?.meta?.updatedAt) ? source.meta.updatedAt : fallbackTimestamp;
+
+  result.cases = (Array.isArray(source.cases) ? source.cases : []).filter(Boolean).map(item => {
+    const id = item.id || uuid();
+    const createdAt = validIso(item.createdAt) ? item.createdAt : validIso(item.updatedAt) ? item.updatedAt : fallback;
+    const updatedAt = validIso(item.updatedAt) ? item.updatedAt : createdAt;
+    return {...item, id, createdAt, updatedAt};
+  });
+  result.services = (Array.isArray(source.services) ? source.services : []).filter(Boolean).map(item => {
+    const id = item.id || uuid();
+    const createdAt = validIso(item.createdAt) ? item.createdAt : validIso(item.updatedAt) ? item.updatedAt : fallback;
+    const updatedAt = validIso(item.updatedAt) ? item.updatedAt : createdAt;
+    return {...item, id, createdAt, updatedAt};
+  });
+  result.prices = (Array.isArray(source.prices) ? source.prices : []).filter(Boolean).map(item => {
+    const year = Number(item.year);
+    const id = item.id || `price-${year}`;
+    const createdAt = validIso(item.createdAt) ? item.createdAt : validIso(item.updatedAt) ? item.updatedAt : fallback;
+    const updatedAt = validIso(item.updatedAt) ? item.updatedAt : createdAt;
+    return {...item, id, year, city: Number(item.city || 0), county: Number(item.county || 0), createdAt, updatedAt};
+  });
+  result.auditLog = (Array.isArray(source.auditLog) ? source.auditLog : []).filter(Boolean).map(item => ({
+    ...item,
+    id: item.id || uuid(),
+    timestamp: validIso(item.timestamp) ? item.timestamp : fallback
+  })).sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp))).slice(0, 1000);
+
+  result.billedMonths = {};
+  if (source.billedMonths && typeof source.billedMonths === 'object') {
+    for (const [key, value] of Object.entries(source.billedMonths)) {
+      if (!value || typeof value !== 'object') continue;
+      result.billedMonths[key] = {
+        ...value,
+        updatedAt: validIso(value.updatedAt) ? value.updatedAt : validIso(value.exportedAt) ? value.exportedAt : fallback
+      };
+    }
   }
-  return null;
-}
 
-function normalizeCase(item = {}) {
-  const name = String(item.name || '').trim();
-  const createdAt = validTimestamp(item.createdAt || item.updatedAt);
-  return {
-    id: String(item.id || uuid()),
-    name,
-    authority: item.authority === 'Stadt' ? 'Stadt' : 'Landkreis',
-    weeklyHours: Number.isFinite(Number(item.weeklyHours)) ? Number(item.weeklyHours) : 0,
-    officer: String(item.officer || ''),
-    guardians: String(item.guardians || ''),
-    approvalFrom: String(item.approvalFrom || '').slice(0, 10),
-    approvalTo: String(item.approvalTo || '').slice(0, 10),
-    sheetName: String(item.sheetName || name).trim() || name,
-    active: item.active !== false,
-    createdAt,
-    updatedAt: validTimestamp(item.updatedAt || createdAt)
-  };
-}
-
-function normalizeService(item = {}) {
-  const createdAt = validTimestamp(item.createdAt || item.updatedAt);
-  return {
-    id: String(item.id || uuid()),
-    caseId: String(item.caseId || ''),
-    date: String(item.date || '').slice(0, 10),
-    start: String(item.start || ''),
-    end: String(item.end || ''),
-    activity: String(item.activity || DEFAULT_ACTIVITY).trim() || DEFAULT_ACTIVITY,
-    note: String(item.note || ''),
-    useForReport: item.useForReport !== false,
-    createdAt,
-    updatedAt: validTimestamp(item.updatedAt || createdAt)
-  };
-}
-
-function normalizePrice(item = {}) {
-  const createdAt = validTimestamp(item.createdAt || item.updatedAt);
-  return {
-    year: Number(item.year),
-    city: Number(item.city || 0),
-    county: Number(item.county || 0),
-    createdAt,
-    updatedAt: validTimestamp(item.updatedAt || createdAt)
-  };
-}
-
-function normalizeAudit(item = {}) {
-  const timestamp = validTimestamp(item.timestamp, nowIso());
-  return {
-    id: String(item.id || `${timestamp}|${item.caseId || ''}|${item.action || ''}|${item.field || ''}`),
-    timestamp,
-    caseId: String(item.caseId || ''),
-    month: String(item.month || ''),
-    action: String(item.action || ''),
-    field: String(item.field || ''),
-    oldValue: String(item.oldValue ?? ''),
-    newValue: String(item.newValue ?? '')
-  };
-}
-
-function normalizeDeletedService(item = {}, fallbackTime = nowIso()) {
-  if (typeof item === 'string') return { id: item, deletedAt: fallbackTime };
-  return {
-    id: String(item.id || ''),
-    deletedAt: validTimestamp(item.deletedAt, fallbackTime)
-  };
-}
-
-function normalizeBilledMonths(input) {
-  const result = {};
-  if (!input || typeof input !== 'object') return result;
-  for (const [key, value] of Object.entries(input)) {
-    if (!value || typeof value !== 'object') continue;
-    const exportedAt = validTimestamp(value.exportedAt || value.updatedAt);
-    result[key] = {
-      exportedAt,
-      status: value.status === 'changed_after_billing' ? 'changed_after_billing' : 'billed',
-      updatedAt: validTimestamp(value.updatedAt || exportedAt)
-    };
+  result.tombstones = {services: {}};
+  const sourceTombstones = source.tombstones?.services && typeof source.tombstones.services === 'object' ? source.tombstones.services : {};
+  for (const [id, deletedAt] of Object.entries(sourceTombstones)) {
+    result.tombstones.services[id] = validIso(deletedAt) ? deletedAt : fallback;
   }
+  for (const id of Array.isArray(source.deletedServiceIds) ? source.deletedServiceIds : []) {
+    if (!result.tombstones.services[id]) result.tombstones.services[id] = fallback;
+  }
+  result.deletedServiceIds = Object.keys(result.tombstones.services);
+
+  result.meta = {
+    schema: CLOUD_SCHEMA,
+    version: APP_VERSION,
+    updatedAt: validIso(source?.meta?.updatedAt) ? source.meta.updatedAt : fallback,
+    updatedBy: String(source?.meta?.updatedBy || '')
+  };
   return result;
 }
 
-function normalizeState(input) {
-  const source = input && typeof input === 'object' ? input : defaultState();
-  const migrationTime = validTimestamp(source.syncMigratedAt, nowIso());
-  const deletedSource = Array.isArray(source.deletedServices)
-    ? source.deletedServices
-    : Array.isArray(source.deletedServiceIds)
-      ? source.deletedServiceIds
-      : [];
-  const deletedServices = deletedSource
-    .map(item => normalizeDeletedService(item, migrationTime))
-    .filter(item => item.id);
-  const latestDeletion = new Map();
-  for (const item of deletedServices) {
-    const current = latestDeletion.get(item.id);
-    if (!current || Date.parse(item.deletedAt) >= Date.parse(current.deletedAt)) latestDeletion.set(item.id, item);
+let state = normalizeState(
+  JSON.parse(localStorage.getItem(KEY) || 'null') || {
+    cases: old?.cases || [],
+    services: old?.services || [],
+    prices: old?.prices || [],
+    auditLog: old?.auditLog || [],
+    billedMonths: old?.billedMonths || {},
+    deletedServiceIds: old?.deletedServiceIds || []
   }
-  const normalizedDeleted = [...latestDeletion.values()];
-  return {
-    cases: Array.isArray(source.cases) ? source.cases.map(normalizeCase) : [],
-    services: Array.isArray(source.services) ? source.services.map(normalizeService) : [],
-    prices: Array.isArray(source.prices) ? source.prices.map(normalizePrice).filter(price => Number.isFinite(price.year)) : [],
-    auditLog: Array.isArray(source.auditLog) ? source.auditLog.map(normalizeAudit) : [],
-    billedMonths: normalizeBilledMonths(source.billedMonths),
-    deletedServices: normalizedDeleted,
-    deletedServiceIds: normalizedDeleted.map(item => item.id),
-    syncMigratedAt: migrationTime
-  };
-}
+);
 
-function timestampOf(item, field = 'updatedAt') {
-  const parsed = Date.parse(item?.[field] || item?.createdAt || item?.timestamp || '');
-  return Number.isFinite(parsed) ? parsed : 0;
-}
+const deviceId = localStorage.getItem(DEVICE_ID_KEY) || uuid();
+localStorage.setItem(DEVICE_ID_KEY, deviceId);
 
-function mergeRecords(localItems, remoteItems, keyOf, timestampField = 'updatedAt') {
-  const map = new Map();
-  for (const item of localItems || []) map.set(keyOf(item), item);
-  for (const item of remoteItems || []) {
-    const key = keyOf(item);
-    if (key === undefined || key === null || key === '') continue;
-    const current = map.get(key);
-    if (!current || timestampOf(item, timestampField) >= timestampOf(current, timestampField)) map.set(key, item);
-  }
-  return [...map.values()];
-}
-
-function mergeStates(localInput, remoteInput) {
-  const local = normalizeState(localInput);
-  if (!remoteInput) return local;
-  const remote = normalizeState(remoteInput);
-
-  const deletedServices = mergeRecords(local.deletedServices, remote.deletedServices, item => item.id, 'deletedAt')
-    .map(item => normalizeDeletedService(item));
-  const deletionMap = new Map(deletedServices.map(item => [item.id, Date.parse(item.deletedAt)]));
-  const services = mergeRecords(local.services, remote.services, item => item.id)
-    .map(normalizeService)
-    .filter(item => (deletionMap.get(item.id) || 0) < timestampOf(item));
-
-  const billedMonths = {};
-  for (const key of new Set([...Object.keys(local.billedMonths), ...Object.keys(remote.billedMonths)])) {
-    const left = local.billedMonths[key];
-    const right = remote.billedMonths[key];
-    billedMonths[key] = !left ? right : !right ? left : timestampOf(right) >= timestampOf(left) ? right : left;
-  }
-
-  return normalizeState({
-    cases: mergeRecords(local.cases, remote.cases, item => item.id),
-    services,
-    prices: mergeRecords(local.prices, remote.prices, item => String(item.year)),
-    auditLog: mergeRecords(local.auditLog, remote.auditLog, item => item.id, 'timestamp')
-      .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
-      .slice(0, 1000),
-    billedMonths,
-    deletedServices,
-    syncMigratedAt: local.syncMigratedAt || remote.syncMigratedAt || nowIso()
-  });
-}
-
-const storedState = safeParse(localStorage.getItem(STORAGE_KEY));
-let state = normalizeState(storedState || firstLegacyState() || defaultState());
-localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-
-function duration(start, end) {
-  if (!start || !end) return 0;
-  return Math.max(0, (minutesOf(end) - minutesOf(start)) / 60);
-}
-
-function formatHours(value) {
-  return `${Number(value || 0).toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} Std.`;
-}
-
-function dateParts(value) {
-  const [year, month, day] = String(value || '').split('-').map(Number);
-  return { year, month, day };
-}
-
-function weeksBetween(from, to) {
-  if (!from || !to) return 0;
-  const first = dateParts(from);
-  const last = dateParts(to);
-  if (![first.year, first.month, first.day, last.year, last.month, last.day].every(Number.isFinite)) return 0;
-  const firstUtc = Date.UTC(first.year, first.month - 1, first.day);
-  const lastUtc = Date.UTC(last.year, last.month - 1, last.day);
-  if (lastUtc < firstUtc) return 0;
-  return ((lastUtc - firstUtc) / 86400000 + 1) / 7;
-}
-
-function persistLocal(options = {}) {
-  const render = options === true || options?.render !== false;
-  const sync = options !== true && options?.sync === true;
+function persistState({touch = false, scheduleSync = false, render = true} = {}) {
   state = normalizeState(state);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  if (touch) {
+    state.meta.updatedAt = nowIso();
+    state.meta.updatedBy = deviceId;
+  }
+  localStorage.setItem(KEY, JSON.stringify(state));
   if (render) renderAll();
-  if (sync) globalThis.JHOneDrive?.scheduleSync?.();
+  if (scheduleSync) queueCloudSync();
 }
-
-function save(options = {}) {
-  persistLocal({ render: options.render !== false, sync: options.sync !== false });
+function save() {
+  persistState({touch: true, scheduleSync: true, render: true});
 }
-
-function applyCloudState(nextState) {
-  state = normalizeState(nextState);
-  persistLocal({ render: true, sync: false });
-}
-
-function monthKey(dateOrYear, month) {
-  return month === undefined
-    ? String(dateOrYear).slice(0, 7)
-    : `${dateOrYear}-${pad2(month)}`;
-}
-
 function isBilledMonth(key) {
   return Boolean(state.billedMonths[key]);
 }
-
 function setChangedAfterBilling(key) {
   if (state.billedMonths[key]) {
     state.billedMonths[key].status = 'changed_after_billing';
     state.billedMonths[key].updatedAt = nowIso();
   }
 }
-
-function logChange({ caseId = '', month = '', action, field = '', oldValue = '', newValue = '' }) {
-  state.auditLog.unshift(normalizeAudit({
-    id: uuid(),
-    timestamp: new Date().toISOString(),
-    caseId,
-    month,
-    action,
-    field,
-    oldValue,
-    newValue
-  }));
+function logChange({caseId = '', month = '', action, field = '', oldValue = '', newValue = ''}) {
+  state.auditLog.unshift({
+    id: uuid(), timestamp: nowIso(), caseId, month, action, field,
+    oldValue: String(oldValue ?? ''), newValue: String(newValue ?? '')
+  });
   if (state.auditLog.length > 1000) state.auditLog.length = 1000;
   if (month) setChangedAfterBilling(month);
 }
-
 function allCases() {
   return [...state.cases].sort((a, b) => a.name.localeCompare(b.name, 'de'));
 }
-
 function activeCases() {
-  return allCases().filter(item => item.active !== false);
+  return allCases().filter(c => c.active !== false);
 }
-
 function caseById(id) {
-  return state.cases.find(item => item.id === id);
+  return state.cases.find(c => c.id === id);
 }
 
 function showView(name) {
-  document.querySelectorAll('.view').forEach(view => view.classList.add('hidden'));
-  $(`view-${name}`).classList.remove('hidden');
-  document.querySelectorAll('.tab').forEach(button => button.classList.toggle('active', button.dataset.view === name));
+  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+  $('view-' + name).classList.remove('hidden');
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.view === name));
 }
-
-document.querySelectorAll('.tab').forEach(button => {
-  button.onclick = () => showView(button.dataset.view);
-});
-
-function fillSelect(element, list, currentValue, includeArchiveLabel = false) {
-  element.innerHTML = list.length
-    ? list.map(item => `<option value="${esc(item.id)}">${esc(item.name)}${includeArchiveLabel && item.active === false ? ' (archiviert)' : ''}</option>`).join('')
-    : '<option value="">Zuerst Fall anlegen</option>';
-  if ([...element.options].some(option => option.value === currentValue)) element.value = currentValue;
-}
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => showView(b.dataset.view));
 
 function renderSelects() {
   const active = activeCases();
   const all = allCases();
-  fillSelect($('serviceCase'), active, $('serviceCase').value);
-  fillSelect($('hoursCase'), all, $('hoursCase').value, true);
-  fillSelect($('reportCase'), all, $('reportCase').value, true);
+  const build = list => list.length
+    ? list.map(c => `<option value="${c.id}">${esc(c.name)}${c.active === false ? ' (archiviert)' : ''}</option>`).join('')
+    : '<option value="">Zuerst Fall anlegen</option>';
+  const lists = {serviceCase: active, hoursCase: all, reportCase: all};
+  for (const [id, list] of Object.entries(lists)) {
+    const el = $(id);
+    if (!el) continue;
+    const current = el.value;
+    el.innerHTML = build(list);
+    if ([...el.options].some(o => o.value === current)) el.value = current;
+  }
 }
-
 function renderCases() {
-  const query = $('caseSearch').value.toLowerCase();
+  const q = $('caseSearch').value.toLowerCase();
   const filter = $('caseFilter').value;
-  const list = state.cases
-    .filter(item => (
-      filter === 'all' ||
-      (filter === 'active' && item.active !== false) ||
-      (filter === 'inactive' && item.active === false)
-    ) && [item.name, item.authority, item.officer, item.guardians].join(' ').toLowerCase().includes(query))
-    .sort((a, b) => a.name.localeCompare(b.name, 'de'));
-
-  $('cases').innerHTML = list.length
-    ? list.map(item => `<div class="item">
-        <strong>${esc(item.name)}</strong>${item.active === false ? '<span class="badge">archiviert</span>' : ''}
-        <div class="muted">${esc(item.authority)} · ${formatHours(item.weeklyHours)} pro Woche · ${esc(item.officer || 'keine Sachbearbeitung')}</div>
-        <div class="muted">Bewilligung: ${esc(item.approvalFrom || 'offen')} bis ${esc(item.approvalTo || 'offen')}</div>
-        <div class="row" style="margin-top:8px">
-          <button class="secondary small" onclick="editCase('${item.id}')">Bearbeiten</button>
-          <button class="${item.active === false ? 'secondary' : 'danger'} small" onclick="toggleCase('${item.id}')">${item.active === false ? 'Reaktivieren' : 'Archivieren'}</button>
-        </div>
-      </div>`).join('')
-    : '<p class="muted">Keine passenden Fälle.</p>';
+  const list = state.cases.filter(c =>
+    (filter === 'all' || (filter === 'active' && c.active !== false) || (filter === 'inactive' && c.active === false)) &&
+    [c.name, c.authority, c.officer, c.guardians].join(' ').toLowerCase().includes(q)
+  ).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  $('cases').innerHTML = list.length ? list.map(c => `
+    <div class="item"><strong>${esc(c.name)}</strong>${c.active === false ? '<span class="badge">archiviert</span>' : ''}
+    <div class="muted">${esc(c.authority)} · ${formatHours(c.weeklyHours)} pro Woche · ${esc(c.officer || 'keine Sachbearbeitung')}</div>
+    <div class="muted">Bewilligung: ${esc(c.approvalFrom || 'offen')} bis ${esc(c.approvalTo || 'offen')}</div>
+    <div class="row" style="margin-top:8px"><button class="secondary small" onclick="editCase('${c.id}')">Bearbeiten</button><button class="${c.active === false ? 'secondary' : 'danger'} small" onclick="toggleCase('${c.id}')">${c.active === false ? 'Reaktivieren' : 'Archivieren'}</button></div></div>`).join('') : '<p class="muted">Keine passenden Fälle.</p>';
 }
-
 function renderServices() {
-  const sorted = [...state.services]
-    .sort((a, b) => `${b.date}${b.start}`.localeCompare(`${a.date}${a.start}`))
-    .slice(0, 15);
-  $('services').innerHTML = sorted.length
-    ? sorted.map(service => {
-      const relatedCase = caseById(service.caseId);
-      const key = monthKey(service.date);
-      const changed = isBilledMonth(key) && state.billedMonths[key].status === 'changed_after_billing';
-      return `<div class="item">
-        <strong>${esc(relatedCase?.name || 'Unbekannter Fall')}</strong>
-        <span class="badge">${formatHours(duration(service.start, service.end))}</span>
-        ${changed ? '<span class="badge warn">nach Abrechnung geändert</span>' : ''}
-        <div>${esc(service.date)} · ${esc(service.start)}–${esc(service.end)}</div>
-        <div class="muted">${esc(service.activity)}${service.note ? ` · ${esc(service.note)}` : ''}</div>
-        <div class="row" style="margin-top:7px">
-          <button class="secondary small" onclick="editService('${service.id}')">Bearbeiten</button>
-          <button class="danger small" onclick="deleteService('${service.id}')">Löschen</button>
-        </div>
-      </div>`;
-    }).join('')
-    : '<p class="muted">Noch keine Leistungen erfasst.</p>';
+  const sorted = [...state.services].sort((a, b) => (b.date + b.start).localeCompare(a.date + a.start)).slice(0, 15);
+  $('services').innerHTML = sorted.length ? sorted.map(s => {
+    const c = caseById(s.caseId);
+    const changed = isBilledMonth(monthKey(s.date)) && state.billedMonths[monthKey(s.date)].status === 'changed_after_billing';
+    return `<div class="item"><strong>${esc(c?.name || 'Unbekannter Fall')}</strong><span class="badge">${formatHours(duration(s.start, s.end))}</span>${changed ? '<span class="badge warn">nach Abrechnung geändert</span>' : ''}<div>${esc(s.date)} · ${esc(s.start)}–${esc(s.end)}</div><div class="muted">${esc(s.activity)}${s.note ? ' · ' + esc(s.note) : ''}</div><div class="row" style="margin-top:7px"><button class="secondary small" onclick="editService('${s.id}')">Bearbeiten</button><button class="danger small" onclick="deleteService('${s.id}')">Löschen</button></div></div>`;
+  }).join('') : '<p class="muted">Noch keine Leistungen erfasst.</p>';
 }
-
 function renderPrices() {
-  $('prices').innerHTML = state.prices.length
-    ? [...state.prices].sort((a, b) => b.year - a.year).map(price => `<div class="item">
-        <strong>${price.year}</strong>
-        <div class="muted">Stadt: ${Number(price.city).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })} · Landkreis: ${Number(price.county).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}</div>
-      </div>`).join('')
-    : '<p class="muted">Noch keine Preise hinterlegt.</p>';
+  $('prices').innerHTML = state.prices.length ? [...state.prices].sort((a, b) => b.year - a.year).map(p => `<div class="item"><strong>${p.year}</strong><div class="muted">Stadt: ${Number(p.city).toLocaleString('de-DE', {style: 'currency', currency: 'EUR'})} · Landkreis: ${Number(p.county).toLocaleString('de-DE', {style: 'currency', currency: 'EUR'})}</div></div>`).join('') : '<p class="muted">Noch keine Preise hinterlegt.</p>';
 }
-
 function renderHours() {
-  const caseId = $('hoursCase').value;
-  const selectedCase = caseById(caseId);
+  const id = $('hoursCase').value;
+  const c = caseById(id);
   const year = Number($('hoursYear').value);
-  if (!selectedCase) {
-    $('hoursSummary').innerHTML = '<p class="muted">Kein Fall vorhanden.</p>';
+  if (!c) {
+    $('hoursSummary').innerHTML = '<p class="muted">Kein aktiver Fall vorhanden.</p>';
     $('notesList').innerHTML = '';
     return;
   }
-
-  const services = state.services.filter(service => service.caseId === caseId && Number(service.date.slice(0, 4)) === year);
-  const completed = services.reduce((sum, service) => sum + duration(service.start, service.end), 0);
-  let from = selectedCase.approvalFrom;
-  let to = selectedCase.approvalTo;
-  if (from && Number(from.slice(0, 4)) < year) from = `${year}-01-01`;
-  if (to && Number(to.slice(0, 4)) > year) to = `${year}-12-31`;
-  const approved = weeksBetween(from, to) * Number(selectedCase.weeklyHours || 0);
-  const remaining = approved - completed;
-  const price = state.prices.find(item => Number(item.year) === year);
-  const rate = price ? (selectedCase.authority === 'Stadt' ? price.city : price.county) : 0;
-
-  $('hoursSummary').innerHTML = `<div class="stats" style="margin-top:16px">
-      <div class="stat"><span class="muted">Jahreskontingent rechnerisch</span><strong>${formatHours(approved)}</strong></div>
-      <div class="stat"><span class="muted">Geleistet</span><strong>${formatHours(completed)}</strong></div>
-      <div class="stat"><span class="muted">Rest</span><strong>${formatHours(remaining)}</strong></div>
-    </div>
-    <p class="muted">Grundlage: ${selectedCase.weeklyHours} Wochenstunden innerhalb des im Kalenderjahr liegenden Bewilligungszeitraums.${rate ? ` Aktueller Satz: ${Number(rate).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}.` : ''}</p>
-    ${remaining < 0 ? '<p class="message" style="color:#8b3030">Achtung: Das rechnerische Kontingent ist überschritten.</p>' : ''}`;
-
-  const notes = services.filter(service => service.note).sort((a, b) => b.date.localeCompare(a.date));
-  $('notesList').innerHTML = notes.length
-    ? notes.map(service => `<div class="item"><strong>${esc(service.date)}</strong><div>${esc(service.note)}</div><div class="muted">${esc(service.start)}–${esc(service.end)}</div></div>`).join('')
-    : '<p class="muted">Für dieses Jahr sind keine Verlaufsnotizen gespeichert.</p>';
+  const sv = state.services.filter(s => s.caseId === id && Number(s.date.slice(0, 4)) === year);
+  const done = sv.reduce((n, s) => n + duration(s.start, s.end), 0);
+  let from = c.approvalFrom || year + '-01-01';
+  let to = c.approvalTo || year + '-12-31';
+  if (Number(from.slice(0, 4)) < year) from = year + '-01-01';
+  if (Number(to.slice(0, 4)) > year) to = year + '-12-31';
+  if (Number(from.slice(0, 4)) > year || Number(to.slice(0, 4)) < year) { from = ''; to = ''; }
+  const approved = weeksBetween(from, to) * Number(c.weeklyHours || 0);
+  const remaining = approved - done;
+  const p = state.prices.find(x => Number(x.year) === year);
+  const rate = p ? (c.authority === 'Stadt' ? p.city : p.county) : 0;
+  $('hoursSummary').innerHTML = `<div class="stats" style="margin-top:16px"><div class="stat"><span class="muted">Jahreskontingent rechnerisch</span><strong>${formatHours(approved)}</strong></div><div class="stat"><span class="muted">Geleistet</span><strong>${formatHours(done)}</strong></div><div class="stat"><span class="muted">Rest</span><strong>${formatHours(remaining)}</strong></div></div><p class="muted">Grundlage: ${c.weeklyHours} Wochenstunden innerhalb des im Kalenderjahr liegenden Bewilligungszeitraums.${rate ? ' Aktueller Satz: ' + Number(rate).toLocaleString('de-DE', {style: 'currency', currency: 'EUR'}) + '.' : ''}</p>${remaining < 0 ? '<p class="message" style="color:#8b3030">Achtung: Das rechnerische Kontingent ist überschritten.</p>' : ''}`;
+  const notes = sv.filter(s => s.note).sort((a, b) => b.date.localeCompare(a.date));
+  $('notesList').innerHTML = notes.length ? notes.map(s => `<div class="item"><strong>${esc(s.date)}</strong><div>${esc(s.note)}</div><div class="muted">${esc(s.start)}–${esc(s.end)}</div></div>`).join('') : '<p class="muted">Für dieses Jahr sind keine Verlaufsnotizen gespeichert.</p>';
 }
-
 function renderBillingStatus() {
   const key = monthKey(Number($('billingYear').value), Number($('billingMonth').value));
   const entry = state.billedMonths[key];
-  $('billingStatus').innerHTML = !entry
-    ? 'Status: noch nicht abgerechnet'
-    : entry.status === 'changed_after_billing'
-      ? `<span class="badge warn">geändert nach Abrechnung</span> Letzter Export: ${esc(new Date(entry.exportedAt).toLocaleString('de-DE'))}`
-      : `<span class="badge ok">abgerechnet</span> Export: ${esc(new Date(entry.exportedAt).toLocaleString('de-DE'))}`;
+  $('billingStatus').innerHTML = !entry ? 'Status: noch nicht abgerechnet' : entry.status === 'changed_after_billing'
+    ? `<span class="badge warn">geändert nach Abrechnung</span> Letzter Export: ${esc(new Date(entry.exportedAt).toLocaleString('de-DE'))}`
+    : `<span class="badge ok">abgerechnet</span> Export: ${esc(new Date(entry.exportedAt).toLocaleString('de-DE'))}`;
 }
-
 function renderAuditLog() {
   const items = state.auditLog.slice(0, 100);
-  $('auditLog').innerHTML = items.length
-    ? items.map(item => {
-      const relatedCase = caseById(item.caseId);
-      return `<div class="item">
-        <strong>${esc(new Date(item.timestamp).toLocaleString('de-DE'))}</strong>${item.month ? ` <span class="badge">${esc(item.month)}</span>` : ''}
-        <div>${esc(relatedCase?.name || 'Allgemein')} – ${esc(item.action)}${item.field ? ` – ${esc(item.field)}` : ''}</div>
-        ${item.oldValue || item.newValue ? `<div class="muted">${esc(item.oldValue)} → ${esc(item.newValue)}</div>` : ''}
-      </div>`;
-    }).join('')
-    : '<p class="muted">Noch keine Änderungen nach einer Abrechnung protokolliert.</p>';
+  $('auditLog').innerHTML = items.length ? items.map(x => {
+    const c = caseById(x.caseId);
+    return `<div class="item"><strong>${esc(new Date(x.timestamp).toLocaleString('de-DE'))}</strong>${x.month ? ` <span class="badge">${esc(x.month)}</span>` : ''}<div>${esc(c?.name || 'Allgemein')} – ${esc(x.action)}${x.field ? ` – ${esc(x.field)}` : ''}</div>${x.oldValue || x.newValue ? `<div class="muted">${esc(x.oldValue)} → ${esc(x.newValue)}</div>` : ''}</div>`;
+  }).join('') : '<p class="muted">Noch keine Änderungen nach einer Abrechnung protokolliert.</p>';
 }
-
 function renderAll() {
   renderSelects();
   renderCases();
@@ -470,120 +280,104 @@ function renderAll() {
   renderHours();
   renderBillingStatus();
   renderAuditLog();
+  renderSyncPanel();
 }
 
-$('caseForm').onsubmit = event => {
-  event.preventDefault();
+$('caseForm').onsubmit = e => {
+  e.preventDefault();
   const id = $('caseId').value;
+  const existing = id ? caseById(id) : null;
   const name = $('caseName').value.trim();
   const sheetName = $('sheetName').value.trim() || name;
   if (/[\\/?*\[\]:]/.test(sheetName) || sheetName.length > 31) {
-    alert('Der Tabellenblattname darf höchstens 31 Zeichen lang sein und keine Zeichen \\ / ? * [ ] : enthalten.');
+    alert('Der Tabellenblattname darf höchstens 31 Zeichen lang sein und keines der Zeichen \\ / ? * [ ] : enthalten.');
     return;
   }
-  const reservedSheetNames = new Set(['gesamt', 'stadt', 'landkreis', 'geldbedarf']);
-  if (reservedSheetNames.has(sheetName.toLocaleLowerCase('de-DE'))) {
-    alert('Dieser Tabellenblattname ist für ein Gesamt- oder Berechnungsblatt reserviert.');
-    return;
-  }
-  if (state.cases.some(item => item.id !== id && item.sheetName.toLocaleLowerCase('de-DE') === sheetName.toLocaleLowerCase('de-DE'))) {
+  if (state.cases.some(c => c.id !== id && String(c.sheetName || c.name).trim().toLocaleLowerCase('de-DE') === sheetName.toLocaleLowerCase('de-DE'))) {
     alert('Dieser Tabellenblattname ist bereits einem anderen Fall zugeordnet.');
     return;
   }
-  const existing = id ? caseById(id) : null;
-  const item = normalizeCase({
-    id: id || uuid(),
-    name,
-    authority: $('authority').value,
-    weeklyHours: Number($('weeklyHours').value),
-    officer: $('officer').value.trim(),
-    guardians: $('guardians').value.trim(),
-    approvalFrom: $('approvalFrom').value,
-    approvalTo: $('approvalTo').value,
-    sheetName,
-    active: existing ? existing.active !== false : true,
-    createdAt: existing?.createdAt || nowIso(),
-    updatedAt: nowIso()
-  });
-  if (item.approvalFrom && item.approvalTo && item.approvalTo < item.approvalFrom) {
+  const timestamp = nowIso();
+  const obj = {
+    id: id || uuid(), name, authority: $('authority').value,
+    weeklyHours: Number($('weeklyHours').value), officer: $('officer').value.trim(),
+    guardians: $('guardians').value.trim(), approvalFrom: $('approvalFrom').value,
+    approvalTo: $('approvalTo').value, sheetName,
+    active: id ? existing?.active !== false : true,
+    createdAt: existing?.createdAt || timestamp, updatedAt: timestamp
+  };
+  if (obj.approvalFrom && obj.approvalTo && obj.approvalTo < obj.approvalFrom) {
     alert('Das Bewilligungsende liegt vor dem Beginn.');
     return;
   }
-  if (id) state.cases[state.cases.findIndex(entry => entry.id === id)] = item;
-  else state.cases.push(item);
+  if (id) state.cases[state.cases.findIndex(c => c.id === id)] = obj;
+  else state.cases.push(obj);
   resetCaseForm();
   save();
 };
-
 function resetCaseForm() {
   $('caseForm').reset();
   $('caseId').value = '';
   $('caseHeading').textContent = 'Fall anlegen';
   $('cancelCaseEdit').classList.add('hidden');
 }
-
 window.editCase = id => {
-  const item = caseById(id);
-  if (!item) return;
+  const c = caseById(id);
+  if (!c) return;
   showView('cases');
-  $('caseId').value = item.id;
-  $('caseName').value = item.name;
-  $('authority').value = item.authority;
-  $('weeklyHours').value = item.weeklyHours;
-  $('officer').value = item.officer || '';
-  $('guardians').value = item.guardians || '';
-  $('approvalFrom').value = item.approvalFrom || '';
-  $('approvalTo').value = item.approvalTo || '';
-  $('sheetName').value = item.sheetName || item.name;
+  $('caseId').value = c.id;
+  $('caseName').value = c.name;
+  $('authority').value = c.authority;
+  $('weeklyHours').value = c.weeklyHours;
+  $('officer').value = c.officer || '';
+  $('guardians').value = c.guardians || '';
+  $('approvalFrom').value = c.approvalFrom || '';
+  $('approvalTo').value = c.approvalTo || '';
+  $('sheetName').value = c.sheetName || c.name;
   $('caseHeading').textContent = 'Fall bearbeiten';
   $('cancelCaseEdit').classList.remove('hidden');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  scrollTo({top: 0, behavior: 'smooth'});
 };
-
 window.toggleCase = id => {
-  const item = caseById(id);
-  if (!item) return;
-  item.active = item.active === false;
-  item.updatedAt = nowIso();
+  const c = caseById(id);
+  if (!c) return;
+  c.active = c.active === false;
+  c.updatedAt = nowIso();
   save();
 };
-
 $('cancelCaseEdit').onclick = resetCaseForm;
 $('caseSearch').oninput = renderCases;
 $('caseFilter').onchange = renderCases;
 
 function minutesOf(time) {
-  const [hour, minute] = String(time).split(':').map(Number);
-  return hour * 60 + minute;
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
 }
-
-function overlaps(firstStart, firstEnd, secondStart, secondEnd) {
-  return minutesOf(firstStart) < minutesOf(secondEnd) && minutesOf(secondStart) < minutesOf(firstEnd);
+function overlaps(aStart, aEnd, bStart, bEnd) {
+  return minutesOf(aStart) < minutesOf(bEnd) && minutesOf(bStart) < minutesOf(aEnd);
 }
-
 function isQuarterHour(time) {
   return /^(?:[01]\d|2[0-3]):(?:00|15|30|45)$/.test(time);
 }
-
-$('serviceForm').onsubmit = event => {
-  event.preventDefault();
+$('serviceForm').onsubmit = e => {
+  e.preventDefault();
   const id = $('serviceId').value;
   const caseId = $('serviceCase').value;
   const date = $('date').value;
   const start = $('start').value;
   const end = $('end').value;
-  const selectedCase = caseById(caseId);
-  const existing = id ? state.services.find(item => item.id === id) : null;
+  const c = caseById(caseId);
+  const existing = id ? state.services.find(s => s.id === id) : null;
   $('serviceMessage').textContent = '';
-  if (!selectedCase) return;
+  if (!c) return;
   if (!isQuarterHour(start) || !isQuarterHour(end)) {
     $('serviceMessage').textContent = 'Beginn und Ende müssen im Viertelstundentakt liegen.';
     return;
   }
-  if ((selectedCase.approvalFrom && date < selectedCase.approvalFrom) || (selectedCase.approvalTo && date > selectedCase.approvalTo)) {
+  if ((c.approvalFrom && date < c.approvalFrom) || (c.approvalTo && date > c.approvalTo)) {
     if (!confirm('Das Datum liegt außerhalb des hinterlegten Bewilligungszeitraums. Trotzdem speichern?')) return;
   }
-  if (state.services.some(item => item.id !== id && item.caseId === caseId && item.date === date)) {
+  if (state.services.some(s => s.id !== id && s.caseId === caseId && s.date === date)) {
     $('serviceMessage').textContent = 'Für diesen Fall ist an diesem Tag bereits ein Eintrag vorhanden.';
     return;
   }
@@ -591,58 +385,47 @@ $('serviceForm').onsubmit = event => {
     $('serviceMessage').textContent = 'Die Endzeit muss nach der Beginnzeit liegen.';
     return;
   }
-  const conflict = state.services.find(item => item.id !== id && item.date === date && overlaps(start, end, item.start, item.end));
+  if (duration(start, end) > 4 && !confirm(`Der Termin dauert ${formatHours(duration(start, end))}. Ist das korrekt?`)) return;
+  const conflict = state.services.find(s => s.id !== id && s.date === date && overlaps(start, end, s.start, s.end));
   if (conflict) {
-    const otherCase = caseById(conflict.caseId);
-    $('serviceMessage').textContent = `Terminüberschneidung mit ${otherCase?.name || 'einem anderen Fall'} (${conflict.start}–${conflict.end}). Direkte Anschlusstermine sind erlaubt.`;
+    const other = caseById(conflict.caseId);
+    $('serviceMessage').textContent = `Terminüberschneidung mit ${other?.name || 'einem anderen Fall'} (${conflict.start}–${conflict.end}). Direkte Anschlusstermine sind erlaubt.`;
     return;
   }
-
-  const item = normalizeService({
-    id: id || uuid(),
-    caseId,
-    date,
-    start,
-    end,
-    activity: $('activity').value.trim(),
-    note: $('note').value.trim(),
+  const timestamp = nowIso();
+  const obj = {
+    id: id || uuid(), caseId, date, start, end,
+    activity: $('activity').value.trim(), note: $('note').value.trim(),
     useForReport: $('reportUse').checked,
-    createdAt: existing?.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  });
-
+    createdAt: existing?.createdAt || timestamp, updatedAt: timestamp
+  };
   if (existing) {
-    const trackedFields = {
-      Fall: [existing.caseId, item.caseId],
-      Datum: [existing.date, item.date],
-      Beginn: [existing.start, item.start],
-      Ende: [existing.end, item.end],
-      Tätigkeit: [existing.activity, item.activity],
-      Verlaufsnotiz: [existing.note, item.note],
-      'Für Verlaufsdokumentation': [existing.useForReport !== false, item.useForReport !== false]
+    const tracked = {
+      Fall: [existing.caseId, obj.caseId], Datum: [existing.date, obj.date],
+      Beginn: [existing.start, obj.start], Ende: [existing.end, obj.end],
+      Tätigkeit: [existing.activity, obj.activity], Verlaufsnotiz: [existing.note, obj.note],
+      'Für Verlaufsdokumentation': [existing.useForReport !== false, obj.useForReport !== false]
     };
-    const affectedMonths = new Set([monthKey(existing.date), monthKey(item.date)]);
-    for (const [field, [oldValue, newValue]] of Object.entries(trackedFields)) {
+    const affectedMonths = new Set([monthKey(existing.date), monthKey(obj.date)]);
+    for (const [field, [oldValue, newValue]] of Object.entries(tracked)) {
       if (String(oldValue ?? '') !== String(newValue ?? '')) {
         for (const key of affectedMonths) {
-          if (isBilledMonth(key)) logChange({ caseId: item.caseId, month: key, action: 'Leistung geändert', field, oldValue, newValue });
+          if (isBilledMonth(key)) logChange({caseId: obj.caseId, month: key, action: 'Leistung geändert', field, oldValue, newValue});
         }
       }
     }
-    state.services[state.services.findIndex(service => service.id === id)] = item;
+    state.services[state.services.findIndex(s => s.id === id)] = obj;
     $('serviceMessage').textContent = 'Leistung geändert.';
   } else {
-    state.services.push(item);
+    state.services.push(obj);
+    delete state.tombstones.services[obj.id];
     const key = monthKey(date);
-    if (isBilledMonth(key)) {
-      logChange({ caseId, month: key, action: 'Leistung nach Abrechnung hinzugefügt', field: 'Termin', oldValue: '', newValue: `${date} ${start}–${end}` });
-    }
+    if (isBilledMonth(key)) logChange({caseId, month: key, action: 'Leistung nach Abrechnung hinzugefügt', field: 'Termin', oldValue: '', newValue: `${date} ${start}–${end}`});
     $('serviceMessage').textContent = 'Leistung gespeichert.';
   }
   resetServiceForm();
   save();
 };
-
 function resetServiceForm() {
   $('serviceId').value = '';
   $('serviceHeading').textContent = 'Leistung erfassen';
@@ -650,411 +433,543 @@ function resetServiceForm() {
   $('cancelServiceEdit').classList.add('hidden');
   $('note').value = '';
   $('reportUse').checked = true;
-  $('activity').value = DEFAULT_ACTIVITY;
 }
-
 window.editService = id => {
-  const item = state.services.find(service => service.id === id);
-  if (!item) return;
+  const s = state.services.find(x => x.id === id);
+  if (!s) return;
   showView('entry');
-  if (![...$('serviceCase').options].some(option => option.value === item.caseId)) {
-    const archivedCase = caseById(item.caseId);
-    if (archivedCase) $('serviceCase').add(new Option(`${archivedCase.name} (archiviert)`, archivedCase.id));
-  }
-  $('serviceId').value = item.id;
-  $('serviceCase').value = item.caseId;
-  $('date').value = item.date;
-  $('start').value = item.start;
-  $('end').value = item.end;
-  $('activity').value = item.activity || DEFAULT_ACTIVITY;
-  $('note').value = item.note || '';
-  $('reportUse').checked = item.useForReport !== false;
+  $('serviceId').value = s.id;
+  $('serviceCase').value = s.caseId;
+  $('date').value = s.date;
+  $('start').value = s.start;
+  $('end').value = s.end;
+  $('activity').value = s.activity || 'einzelfallbezogene Tätigkeit';
+  $('note').value = s.note || '';
+  $('reportUse').checked = s.useForReport !== false;
   $('serviceHeading').textContent = 'Leistung bearbeiten';
   $('saveServiceBtn').textContent = 'Änderung speichern';
   $('cancelServiceEdit').classList.remove('hidden');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  scrollTo({top: 0, behavior: 'smooth'});
 };
-
 $('cancelServiceEdit').onclick = resetServiceForm;
-
 window.deleteService = id => {
-  const item = state.services.find(service => service.id === id);
-  if (!item || !confirm('Diesen Leistungseintrag wirklich löschen?')) return;
-  const key = monthKey(item.date);
-  if (isBilledMonth(key)) {
-    logChange({ caseId: item.caseId, month: key, action: 'Leistung nach Abrechnung gelöscht', field: 'Termin', oldValue: `${item.date} ${item.start}–${item.end}`, newValue: '' });
-  }
-  state.services = state.services.filter(service => service.id !== id);
-  const deletedAt = nowIso();
-  state.deletedServices = state.deletedServices.filter(entry => entry.id !== id);
-  state.deletedServices.push({ id, deletedAt });
-  state.deletedServiceIds = state.deletedServices.map(entry => entry.id);
+  const s = state.services.find(x => x.id === id);
+  if (!s || !confirm('Diesen Leistungseintrag wirklich löschen?')) return;
+  const timestamp = nowIso();
+  const key = monthKey(s.date);
+  if (isBilledMonth(key)) logChange({caseId: s.caseId, month: key, action: 'Leistung nach Abrechnung gelöscht', field: 'Termin', oldValue: `${s.date} ${s.start}–${s.end}`, newValue: ''});
+  state.services = state.services.filter(x => x.id !== id);
+  state.tombstones.services[id] = timestamp;
+  state.deletedServiceIds = Object.keys(state.tombstones.services);
   save();
 };
-
-$('priceForm').onsubmit = event => {
-  event.preventDefault();
+$('priceForm').onsubmit = e => {
+  e.preventDefault();
   const year = Number($('priceYear').value);
-  const existing = state.prices.find(price => Number(price.year) === year);
-  const item = normalizePrice({
-    year,
-    city: $('priceCity').value,
-    county: $('priceCounty').value,
-    createdAt: existing?.createdAt || nowIso(),
-    updatedAt: nowIso()
-  });
-  if (!Number.isFinite(item.year) || item.city < 0 || item.county < 0) {
-    alert('Bitte gültige Preise eintragen.');
-    return;
-  }
-  const index = state.prices.findIndex(price => Number(price.year) === year);
-  if (index >= 0) state.prices[index] = item;
-  else state.prices.push(item);
+  const i = state.prices.findIndex(p => Number(p.year) === year);
+  const existing = i >= 0 ? state.prices[i] : null;
+  const timestamp = nowIso();
+  const obj = {
+    id: existing?.id || `price-${year}`, year,
+    city: Number($('priceCity').value), county: Number($('priceCounty').value),
+    createdAt: existing?.createdAt || timestamp, updatedAt: timestamp
+  };
+  if (i >= 0) state.prices[i] = obj;
+  else state.prices.push(obj);
   save();
 };
-
 $('hoursCase').onchange = renderHours;
 $('hoursYear').oninput = renderHours;
 
+function downloadBlob(content, name, type = 'application/json') {
+  const blob = new Blob([content], {type});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 3000);
+}
+async function exportJsonFile(payload, fileName) {
+  downloadBlob(JSON.stringify(payload, null, 2), fileName);
+}
 $('exportBtn').onclick = async () => {
-  await exportJsonFile({
-    schema: 'jh-assist-backup-v1',
-    version: APP_VERSION,
-    exportedAt: new Date().toISOString(),
-    ...state
-  }, `JH-Assist-Vollsicherung-${localDateString()}.json`);
+  await exportJsonFile({schema: 'jh-assist-backup-v1', version: APP_VERSION, exportedAt: nowIso(), ...state}, 'JH-Assist-Vollsicherung-' + localIsoDate() + '.json');
 };
-
-$('importFile').onchange = async event => {
-  const file = event.target.files[0];
-  if (!file) return;
+$('importFile').onchange = async e => {
+  const f = e.target.files[0];
+  if (!f) return;
   try {
-    const data = safeParse(await file.text());
-    if (!Array.isArray(data?.cases) || !Array.isArray(data?.services)) throw new Error('Ungültiges Format');
-    if (confirm('Alle lokalen Daten durch diese Vollsicherung ersetzen?')) {
-      state = normalizeState(data);
+    const d = JSON.parse(await f.text());
+    if (!Array.isArray(d.cases) || !Array.isArray(d.services)) throw Error();
+    if (confirm('Alle lokalen und synchronisierten Daten durch diese Vollsicherung ersetzen?')) {
+      state = normalizeState(d, nowIso());
       save();
-      alert('Die Vollsicherung wurde importiert.');
     }
-  } catch (error) {
+  } catch {
     alert('Die Datei ist keine gültige JH-Assist-Vollsicherung.');
   }
-  event.target.value = '';
+  e.target.value = '';
 };
-
 $('clearBtn').onclick = () => {
-  if (confirm('Wirklich alle lokal gespeicherten Daten löschen?')) {
+  if (confirm('Wirklich nur die lokal gespeicherten Daten auf diesem Gerät löschen? Beim nächsten Synchronisieren werden die OneDrive-Daten wieder geladen.')) {
     state = defaultState();
-    save();
+    persistState({touch: true, scheduleSync: false, render: true});
   }
 };
-
-function downloadBlob(content, name, type = 'application/json') {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = name;
-  anchor.style.display = 'none';
-  document.body.appendChild(anchor);
-  anchor.click();
-  setTimeout(() => {
-    URL.revokeObjectURL(url);
-    anchor.remove();
-  }, 3000);
-}
-
-function isAppleMobile() {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-}
-
-async function deliverFile(content, name, type = 'application/json') {
-  if (isAppleMobile() && typeof File !== 'undefined' && navigator.share && navigator.canShare) {
-    try {
-      const file = new File([content], name, { type });
-      if (navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: name });
-        return 'shared';
-      }
-    } catch (error) {
-      if (error?.name === 'AbortError') throw error;
-      console.warn('Teilen nicht verfügbar; Datei wird stattdessen heruntergeladen.', error);
-    }
-  }
-  downloadBlob(content, name, type);
-  return 'downloaded';
-}
-
-function billingContext() {
-  const year = Number($('billingYear').value);
-  const month = Number($('billingMonth').value);
-  const monthStart = `${year}-${pad2(month)}-01`;
-  const monthEnd = lastDateOfMonth(year, month);
-  const cases = state.cases.filter(item =>
-    (!item.approvalFrom || item.approvalFrom <= monthEnd) &&
-    (!item.approvalTo || item.approvalTo >= monthStart)
-  );
-  const price = state.prices.find(item => Number(item.year) === year);
-  return { year, month, monthStart, monthEnd, cases, price };
-}
-
-function isWindowsDevice() {
-  return /Windows/i.test(navigator.userAgent || '') || /Win/i.test(navigator.platform || '');
-}
-
-function launchExportHelper(year, month, cloudUpdatedAt = '') {
-  const config = globalThis.JHOneDrive?.getConfig?.() || {};
-  const parameters = new URLSearchParams({
-    year: String(year),
-    month: String(month),
-    clientId: String(config.clientId || ''),
-    tenantId: String(config.tenantId || '')
-  });
-  if (cloudUpdatedAt) parameters.set('sync', cloudUpdatedAt);
-  const protocolUrl = `jhassist://export?${parameters.toString()}`;
-  globalThis.location.href = protocolUrl;
-}
-
-async function exportBillingData() {
-  const message = $('billingMessage');
-  const { year, month, cases, price } = billingContext();
-  if (!cases.length) {
-    message.textContent = 'Für diesen Monat gibt es keine abzurechnenden Fälle.';
-    return;
-  }
-  if (!price) {
-    message.textContent = `Für ${year} sind noch keine Preise hinterlegt.`;
-    return;
-  }
-  if (!globalThis.JHOneDrive?.configured?.()) {
-    message.textContent = 'Bitte zuerst unter Einstellungen die OneDrive-Synchronisierung einrichten.';
-    showView('settings');
-    return;
-  }
-  if (!isWindowsDevice()) {
-    message.textContent = 'Die Excel-Abrechnung wird auf dem Windows-PC erstellt. Die Daten sind bereits über OneDrive verfügbar.';
-    return;
-  }
-
-  if (!globalThis.JHOneDrive.signedIn?.()) {
-    message.textContent = 'Microsoft-Anmeldung wird geöffnet. Nach der Anmeldung bitte den Export erneut starten.';
-    try { await globalThis.JHOneDrive.syncNow({ interactive: true }); }
-    catch (error) { message.textContent = `Anmeldung konnte nicht gestartet werden: ${error.message}`; }
-    return;
-  }
-
-  // Der Protokollaufruf muss direkt innerhalb des Tastendrucks erfolgen,
-  // damit Browser ihn nicht als unerwünschten externen App-Start blockieren.
-  // Der Exporthelfer wartet gleichzeitig darauf, dass dieser Datenstand in
-  // OneDrive sichtbar ist. So bleibt der Vorgang ein einziger Klick.
-  const syncTarget = nowIso();
-  message.textContent = 'Aktuelle Daten werden synchronisiert; der Windows-Exporthelfer wird geöffnet …';
-  const syncPromise = globalThis.JHOneDrive.syncNow({ interactive: false, throwOnError: true });
-  launchExportHelper(year, month, syncTarget);
-  syncPromise
-    .then(result => {
-      if (result?.status === 'synced') {
-        message.textContent = 'Daten synchronisiert. Der Exporthelfer erstellt die Excel-Abrechnung.';
-      }
-    })
-    .catch(error => {
-      message.textContent = `Synchronisierung fehlgeschlagen: ${error.message}`;
-    });
-}
 
 function reportServices() {
-  const caseId = $('reportCase').value;
+  const id = $('reportCase').value;
   const from = $('reportFrom').value;
   const to = $('reportTo').value;
-  return state.services
-    .filter(item => item.caseId === caseId && item.note && item.useForReport !== false && (!from || item.date >= from) && (!to || item.date <= to))
-    .sort((a, b) => `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`));
+  return state.services.filter(s => s.caseId === id && s.note && s.useForReport !== false && (!from || s.date >= from) && (!to || s.date <= to)).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
 }
-
 function createReport() {
-  const selectedCase = caseById($('reportCase').value);
+  const c = caseById($('reportCase').value);
   const items = reportServices();
-  const message = $('reportMessage');
-  if (!selectedCase) {
-    message.textContent = 'Bitte einen Fall auswählen.';
-    return;
-  }
+  const msg = $('reportMessage');
+  if (!c) { msg.textContent = 'Bitte einen Fall auswählen.'; return; }
   if (!items.length) {
     $('reportOutput').value = '';
-    message.textContent = 'Im gewählten Zeitraum liegen keine für die Verlaufsdokumentation markierten Verlaufsnotizen vor.';
+    msg.textContent = 'Im gewählten Zeitraum liegen keine für den Bericht markierten Verlaufsnotizen vor.';
     return;
   }
   const from = $('reportFrom').value || items[0].date;
   const to = $('reportTo').value || items[items.length - 1].date;
-  const lines = [
-    `Verlaufsdokumentation – ${selectedCase.name}`,
-    `Berichtszeitraum: ${from} bis ${to}`,
-    '',
-    'Grundlage',
-    `Die folgende Verlaufsdokumentation beruht ausschließlich auf ${items.length} dokumentierten Verlaufsnotiz(en). Sie ist fachlich zu prüfen, zu gewichten und vor Verwendung zu überarbeiten.`,
-    '',
-    'Chronologischer Verlauf'
-  ];
-  for (const item of items) lines.push(`${item.date}, ${item.start}–${item.end}: ${item.note.trim()}`);
-  lines.push('', 'Zusammenfassende Verlaufsdarstellung');
-  lines.push(`Im Berichtszeitraum fanden ${items.length} dokumentierte Kontakte im Rahmen der einzelfallbezogenen Tätigkeit statt. Die nachfolgenden Feststellungen geben die dokumentierten Beobachtungen und Arbeitsinhalte wieder:`);
-  for (const item of items) lines.push(`- ${item.note.trim()}`);
-  lines.push('', 'Abschließende fachliche Einordnung');
+  const lines = [];
+  lines.push(`Verlaufsdokumentation – ${c.name}`);
+  lines.push(`Berichtszeitraum: ${from} bis ${to}`);
+  lines.push('');
+  lines.push('Grundlage');
+  lines.push(`Die folgende Verlaufsdokumentation beruht ausschließlich auf ${items.length} dokumentierten Verlaufsnotiz(en). Sie ist fachlich zu prüfen, zu gewichten und vor Verwendung zu überarbeiten.`);
+  lines.push('');
+  lines.push('Chronologischer Verlauf');
+  for (const s of items) lines.push(`${s.date}, ${s.start}–${s.end}: ${s.note.trim()}`);
+  lines.push('');
+  lines.push('Zusammenfassende Verlaufsdarstellung');
+  lines.push(`Im Berichtszeitraum fanden ${items.length} dokumentierte Kontakte im Rahmen der einzelfallbezogenen Tätigkeit statt. Die nachfolgenden Feststellungen geben die dokumentierten Beobachtungen und Arbeitsinhalte in chronologischer Form wieder:`);
+  for (const s of items) lines.push(`- ${s.note.trim()}`);
+  lines.push('');
+  lines.push('Abschließende fachliche Einordnung');
   lines.push('Bitte ergänzen: Entwicklung im Berichtszeitraum, erreichte beziehungsweise nicht erreichte Hilfeplanziele, Ressourcen, bestehender Unterstützungsbedarf und fachliche Empfehlung für den weiteren Hilfeverlauf.');
   $('reportOutput').value = lines.join('\n');
-  message.textContent = 'Verlaufsdokumentation erstellt. Es wurden keine nicht dokumentierten Tatsachen ergänzt.';
+  msg.textContent = 'Verlaufsdokumentation erstellt. Es wurden keine nicht dokumentierten Tatsachen ergänzt.';
 }
-
-async function copyText(text) {
-  if (navigator.clipboard?.writeText && globalThis.isSecureContext) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.style.position = 'fixed';
-  textarea.style.opacity = '0';
-  document.body.appendChild(textarea);
-  textarea.select();
-  document.execCommand('copy');
-  textarea.remove();
-}
-
-$('exportBillingDataBtn').onclick = exportBillingData;
-$('billingMonth').onchange = renderBillingStatus;
-$('billingYear').oninput = renderBillingStatus;
 $('createReportBtn').onclick = createReport;
 $('copyReportBtn').onclick = async () => {
   if (!$('reportOutput').value) return;
   try {
-    await copyText($('reportOutput').value);
-    $('reportMessage').textContent = 'Verlaufsdokumentation wurde kopiert.';
-  } catch (error) {
-    $('reportMessage').textContent = 'Der Text konnte nicht kopiert werden.';
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText($('reportOutput').value);
+    else throw Error();
+  } catch {
+    $('reportOutput').focus();
+    $('reportOutput').select();
+    document.execCommand('copy');
   }
+  $('reportMessage').textContent = 'Verlaufsdokumentation wurde kopiert.';
 };
-$('downloadReportBtn').onclick = async () => {
-  const selectedCase = caseById($('reportCase').value);
+$('downloadReportBtn').onclick = () => {
+  const c = caseById($('reportCase').value);
   if (!$('reportOutput').value) return;
-  const safeName = (selectedCase?.name || 'Fall').replace(/[^a-z0-9äöüß_-]+/gi, '_');
-  await deliverFile($('reportOutput').value, `Verlaufsdokumentation_${safeName}.txt`, 'text/plain;charset=utf-8');
+  downloadBlob($('reportOutput').value, `Verlaufsdokumentation_${(c?.name || 'Fall').replace(/[^a-z0-9äöüß_-]+/gi, '_')}.txt`, 'text/plain;charset=utf-8');
 };
 
-function updateSyncStatus(status = {}) {
+/* Microsoft-Anmeldung und OneDrive-Synchronisierung */
+let syncConfig = loadSyncConfig();
+let msalApp = null;
+let currentAccount = null;
+let appFolderId = '';
+let appFolderWebUrl = '';
+let syncInFlight = null;
+let syncTimer = null;
+let syncStatus = {kind: 'idle', text: 'Nicht eingerichtet', detail: ''};
+
+function loadSyncConfig() {
+  const defaults = window.JH_ASSIST_SYNC_CONFIG && typeof window.JH_ASSIST_SYNC_CONFIG === 'object' ? window.JH_ASSIST_SYNC_CONFIG : {};
+  let override = {};
+  try { override = JSON.parse(localStorage.getItem(SYNC_CONFIG_KEY) || '{}'); } catch { override = {}; }
+  return {
+    clientId: String(override.clientId || defaults.clientId || '').trim(),
+    tenantId: String(override.tenantId || defaults.tenantId || '').trim(),
+    redirectUri: String(override.redirectUri || defaults.redirectUri || currentPageUrl()).trim(),
+    fileName: String(defaults.fileName || CLOUD_FILE_DEFAULT).trim() || CLOUD_FILE_DEFAULT
+  };
+}
+function currentPageUrl() {
+  if (!location.protocol.startsWith('http')) return '';
+  return `${location.origin}${location.pathname}`;
+}
+function isGuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+}
+function syncConfigured() {
+  return isGuid(syncConfig.clientId) && isGuid(syncConfig.tenantId) && /^https:\/\//i.test(syncConfig.redirectUri);
+}
+function setSyncStatus(kind, text, detail = '') {
+  syncStatus = {kind, text, detail};
   const badge = $('syncBadge');
-  const message = $('syncStatus');
   if (badge) {
-    badge.className = `sync-pill ${status.state || 'local'}`;
-    const labels = {
-      synced: 'Synchronisiert', syncing: 'Synchronisiert …', ready: 'Angemeldet',
-      offline: 'Offline', error: 'Fehler', signed_out: 'Nicht angemeldet', local: 'Lokal'
-    };
-    badge.textContent = labels[status.state] || 'OneDrive';
+    badge.textContent = text;
+    badge.className = `sync-pill ${kind}`;
+    badge.title = detail || text;
   }
-  if (message) {
-    const account = status.account ? ` Konto: ${status.account}.` : '';
-    message.textContent = `${status.message || ''}${account}`.trim();
-  }
-  const link = $('syncFolderLink');
-  if (link) {
-    if (status.appFolderUrl) {
-      link.href = status.appFolderUrl;
-      link.classList.remove('hidden');
-    } else {
-      link.classList.add('hidden');
-    }
+  const status = $('syncStatusText');
+  if (status) status.textContent = detail ? `${text} – ${detail}` : text;
+}
+function renderSyncPanel() {
+  const client = $('syncClientId');
+  const tenant = $('syncTenantId');
+  const redirect = $('syncRedirectUri');
+  if (client && document.activeElement !== client) client.value = syncConfig.clientId;
+  if (tenant && document.activeElement !== tenant) tenant.value = syncConfig.tenantId;
+  if (redirect) redirect.value = syncConfig.redirectUri || currentPageUrl();
+  const accountText = $('syncAccount');
+  if (accountText) accountText.textContent = currentAccount ? `Angemeldet als ${currentAccount.username || currentAccount.name || 'Microsoft-Konto'}` : 'Nicht bei Microsoft angemeldet.';
+  const login = $('syncLoginBtn');
+  const logout = $('syncLogoutBtn');
+  const sync = $('syncNowBtn');
+  if (login) login.classList.toggle('hidden', Boolean(currentAccount));
+  if (logout) logout.classList.toggle('hidden', !currentAccount);
+  if (sync) sync.disabled = !currentAccount || !navigator.onLine;
+  const folder = $('cloudFolderLink');
+  if (folder) {
+    folder.classList.toggle('hidden', !appFolderWebUrl);
+    if (appFolderWebUrl) folder.href = appFolderWebUrl;
   }
 }
-
-function fillSyncConfiguration() {
-  if (!globalThis.JHOneDrive) return;
-  const config = globalThis.JHOneDrive.getConfig();
-  $('syncClientId').value = config.clientId || '';
-  $('syncTenantId').value = config.tenantId || 'organizations';
-  $('syncRedirectUri').value = config.redirectUri || globalThis.JHOneDrive.defaultRedirectUri();
-  $('syncAuto').checked = config.autoSync !== false;
-  updateSyncStatus(globalThis.JHOneDrive.getStatus());
+function stableObject(value) {
+  if (Array.isArray(value)) return value.map(stableObject);
+  if (value && typeof value === 'object') {
+    const result = {};
+    for (const key of Object.keys(value).sort()) result[key] = stableObject(value[key]);
+    return result;
+  }
+  return value;
 }
-
-$('syncConfigForm').onsubmit = async event => {
-  event.preventDefault();
-  const clientId = $('syncClientId').value.trim();
-  const tenantId = $('syncTenantId').value.trim() || 'organizations';
-  const redirectUri = $('syncRedirectUri').value.trim();
-  if (!/^[0-9a-f-]{36}$/i.test(clientId)) {
-    $('syncStatus').textContent = 'Die Application (Client) ID hat kein gültiges Format.';
+function comparableState(input) {
+  const s = normalizeState(input);
+  return stableObject({
+    cases: [...s.cases].sort((a, b) => String(a.id).localeCompare(String(b.id))),
+    services: [...s.services].sort((a, b) => String(a.id).localeCompare(String(b.id))),
+    prices: [...s.prices].sort((a, b) => Number(a.year) - Number(b.year)),
+    auditLog: [...s.auditLog].sort((a, b) => String(a.id).localeCompare(String(b.id))),
+    billedMonths: s.billedMonths,
+    tombstones: s.tombstones
+  });
+}
+function fingerprint(input) {
+  return JSON.stringify(comparableState(input));
+}
+function newerEntity(a, b, fallback = migrationAt) {
+  if (!a) return b;
+  if (!b) return a;
+  const ta = Date.parse(timestampOf(a, fallback)) || 0;
+  const tb = Date.parse(timestampOf(b, fallback)) || 0;
+  if (ta !== tb) return ta > tb ? a : b;
+  return JSON.stringify(stableObject(a)) >= JSON.stringify(stableObject(b)) ? a : b;
+}
+function mergeEntityArrays(localItems, remoteItems, keyFn) {
+  const map = new Map();
+  for (const item of localItems || []) map.set(keyFn(item), item);
+  for (const item of remoteItems || []) {
+    const key = keyFn(item);
+    map.set(key, newerEntity(map.get(key), item));
+  }
+  return [...map.values()];
+}
+function mergeStates(localInput, remoteInput) {
+  const local = normalizeState(localInput);
+  const remote = normalizeState(remoteInput);
+  const merged = defaultState();
+  merged.tombstones.services = {...local.tombstones.services};
+  for (const [id, deletedAt] of Object.entries(remote.tombstones.services)) {
+    const current = merged.tombstones.services[id];
+    if (!current || Date.parse(deletedAt) > Date.parse(current)) merged.tombstones.services[id] = deletedAt;
+  }
+  merged.cases = mergeEntityArrays(local.cases, remote.cases, item => item.id);
+  merged.prices = mergeEntityArrays(local.prices, remote.prices, item => String(item.year));
+  merged.services = mergeEntityArrays(local.services, remote.services, item => item.id).filter(item => {
+    const deletedAt = merged.tombstones.services[item.id];
+    return !deletedAt || Date.parse(timestampOf(item, migrationAt)) > Date.parse(deletedAt);
+  });
+  merged.deletedServiceIds = Object.keys(merged.tombstones.services);
+  merged.auditLog = mergeEntityArrays(local.auditLog, remote.auditLog, item => item.id)
+    .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp))).slice(0, 1000);
+  merged.billedMonths = {};
+  const keys = new Set([...Object.keys(local.billedMonths), ...Object.keys(remote.billedMonths)]);
+  for (const key of keys) merged.billedMonths[key] = newerEntity(local.billedMonths[key], remote.billedMonths[key]);
+  const localMetaTime = Date.parse(local.meta.updatedAt) || 0;
+  const remoteMetaTime = Date.parse(remote.meta.updatedAt) || 0;
+  merged.meta = localMetaTime >= remoteMetaTime ? {...local.meta} : {...remote.meta};
+  merged.meta.schema = CLOUD_SCHEMA;
+  merged.meta.version = APP_VERSION;
+  return normalizeState(merged);
+}
+async function initializeMicrosoftAuth() {
+  if (!syncConfigured()) {
+    setSyncStatus('setup', 'Nicht eingerichtet', 'Client-ID und Mandanten-ID fehlen.');
+    renderSyncPanel();
+    return;
+  }
+  if (!location.protocol.startsWith('http')) {
+    setSyncStatus('error', 'Online-App öffnen', 'Die Microsoft-Anmeldung funktioniert nur über die veröffentlichte HTTPS-App.');
+    renderSyncPanel();
+    return;
+  }
+  if (typeof msal === 'undefined') {
+    setSyncStatus('error', 'Anmeldung nicht geladen', 'Die Microsoft-Anmeldebibliothek fehlt.');
+    renderSyncPanel();
     return;
   }
   try {
-    await globalThis.JHOneDrive.reconfigure({ clientId, tenantId, redirectUri, autoSync: $('syncAuto').checked });
-    $('syncStatus').textContent = 'Konfiguration gespeichert. Jetzt mit Microsoft anmelden.';
+    msalApp = new msal.PublicClientApplication({
+      auth: {
+        clientId: syncConfig.clientId,
+        authority: `https://login.microsoftonline.com/${syncConfig.tenantId}`,
+        redirectUri: syncConfig.redirectUri,
+        postLogoutRedirectUri: syncConfig.redirectUri,
+        navigateToLoginRequestUrl: false
+      },
+      cache: {cacheLocation: 'localStorage'},
+      system: {allowPlatformBroker: false}
+    });
+    await msalApp.initialize();
+    const redirectResult = await msalApp.handleRedirectPromise();
+    if (redirectResult?.account) msalApp.setActiveAccount(redirectResult.account);
+    currentAccount = msalApp.getActiveAccount() || msalApp.getAllAccounts()[0] || null;
+    if (currentAccount) msalApp.setActiveAccount(currentAccount);
+    renderSyncPanel();
+    if (currentAccount) {
+      setSyncStatus(navigator.onLine ? 'syncing' : 'offline', navigator.onLine ? 'Synchronisiere…' : 'Offline', navigator.onLine ? 'Microsoft-Anmeldung erfolgreich.' : 'Änderungen werden lokal gespeichert.');
+      if (navigator.onLine) await syncNow({interactive: false, reason: 'Start'});
+    } else {
+      setSyncStatus('signedout', 'Nicht angemeldet', 'Mit Microsoft anmelden, um PC und iPhone automatisch abzugleichen.');
+    }
   } catch (error) {
-    $('syncStatus').textContent = `Konfiguration konnte nicht aktiviert werden: ${error.message}`;
+    console.error(error);
+    setSyncStatus('error', 'Anmeldefehler', error.message || String(error));
   }
-};
-
-$('syncSignInBtn').onclick = async () => {
-  try { await globalThis.JHOneDrive.signIn(); }
-  catch (error) { $('syncStatus').textContent = `Anmeldung konnte nicht gestartet werden: ${error.message}`; }
-};
-
-$('syncSignOutBtn').onclick = async () => {
-  try { await globalThis.JHOneDrive.signOut(); }
-  catch (error) { $('syncStatus').textContent = `Abmeldung konnte nicht gestartet werden: ${error.message}`; }
-};
-
-$('syncNowBtn').onclick = async () => {
-  try {
-    const result = await globalThis.JHOneDrive.syncNow({ interactive: true });
-    if (result?.status === 'synced') $('syncStatus').textContent = `Synchronisiert: ${new Date(result.lastSyncAt).toLocaleString('de-DE')}`;
-  } catch (error) {
-    $('syncStatus').textContent = `Synchronisierung fehlgeschlagen: ${error.message}`;
-  }
-};
-
-async function initializeOneDrive() {
-  if (!globalThis.JHOneDrive) return;
-  fillSyncConfiguration();
-  await globalThis.JHOneDrive.initialize({
-    version: APP_VERSION,
-    getState: () => normalizeState(state),
-    normalizeState,
-    mergeStates,
-    setState: nextState => {
-      state = normalizeState(nextState);
-      persistLocal({ render: true, sync: false });
-    },
-    onStatus: updateSyncStatus
-  });
-  fillSyncConfiguration();
 }
+async function loginMicrosoft() {
+  if (!syncConfigured()) {
+    alert('Bitte zuerst Client-ID und Mandanten-ID speichern.');
+    return;
+  }
+  if (!msalApp) await initializeMicrosoftAuth();
+  if (!msalApp) return;
+  await msalApp.loginRedirect({scopes: GRAPH_SCOPES, redirectUri: syncConfig.redirectUri});
+}
+async function logoutMicrosoft() {
+  if (!msalApp || !currentAccount) return;
+  await msalApp.logoutRedirect({account: currentAccount, postLogoutRedirectUri: syncConfig.redirectUri});
+}
+async function acquireGraphToken(interactive = false) {
+  if (!msalApp || !currentAccount) throw new Error('Nicht bei Microsoft angemeldet.');
+  try {
+    const result = await msalApp.acquireTokenSilent({scopes: GRAPH_SCOPES, account: currentAccount});
+    return result.accessToken;
+  } catch (error) {
+    const needsInteraction = ['interaction_required', 'login_required', 'consent_required'].includes(error?.errorCode);
+    if (interactive && needsInteraction) {
+      await msalApp.acquireTokenRedirect({scopes: GRAPH_SCOPES, account: currentAccount, redirectUri: syncConfig.redirectUri});
+      throw new Error('Microsoft-Anmeldung wird geöffnet.');
+    }
+    throw error;
+  }
+}
+async function graphFetch(path, options = {}, interactive = false) {
+  const token = await acquireGraphToken(interactive);
+  const headers = new Headers(options.headers || {});
+  headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(`${GRAPH_BASE}${path}`, {...options, headers});
+  return response;
+}
+async function ensureAppFolder(interactive = false) {
+  if (appFolderId) return {id: appFolderId, webUrl: appFolderWebUrl};
+  const response = await graphFetch('/me/drive/special/approot?$select=id,name,webUrl', {}, interactive);
+  if (!response.ok) throw new Error(`OneDrive-App-Ordner konnte nicht geöffnet werden (${response.status}).`);
+  const folder = await response.json();
+  appFolderId = folder.id;
+  appFolderWebUrl = folder.webUrl || '';
+  renderSyncPanel();
+  return folder;
+}
+async function readRemoteState(interactive = false) {
+  const folder = await ensureAppFolder(interactive);
+  const name = encodeURIComponent(syncConfig.fileName || CLOUD_FILE_DEFAULT);
+  const metadataResponse = await graphFetch(`/me/drive/items/${folder.id}:/${name}?$select=id,name,eTag,lastModifiedDateTime,webUrl`, {}, interactive);
+  if (metadataResponse.status === 404) return {exists: false, etag: '', data: null};
+  if (!metadataResponse.ok) throw new Error(`OneDrive-Datendatei konnte nicht gelesen werden (${metadataResponse.status}).`);
+  const item = await metadataResponse.json();
+  const contentResponse = await graphFetch(`/me/drive/items/${item.id}/content`, {}, interactive);
+  if (!contentResponse.ok) throw new Error(`OneDrive-Datendatei konnte nicht heruntergeladen werden (${contentResponse.status}).`);
+  const text = (await contentResponse.text()).replace(/^\uFEFF/, '');
+  const data = JSON.parse(text);
+  if (data.schema !== CLOUD_SCHEMA && !Array.isArray(data.cases)) throw new Error('Die OneDrive-Datei enthält kein gültiges JH-Assist-Datenformat.');
+  return {exists: true, etag: item.eTag || '', data};
+}
+async function writeRemoteState(data, etag = '', interactive = false) {
+  const folder = await ensureAppFolder(interactive);
+  const name = encodeURIComponent(syncConfig.fileName || CLOUD_FILE_DEFAULT);
+  const headers = {'Content-Type': 'application/json; charset=utf-8'};
+  if (etag) headers['If-Match'] = etag;
+  const response = await graphFetch(`/me/drive/items/${folder.id}:/${name}:/content`, {
+    method: 'PUT', headers, body: JSON.stringify(data, null, 2)
+  }, interactive);
+  if (response.status === 412) {
+    const error = new Error('Synchronisationskonflikt');
+    error.code = 'etag-conflict';
+    throw error;
+  }
+  if (!response.ok) throw new Error(`OneDrive-Datendatei konnte nicht gespeichert werden (${response.status}).`);
+  return response.json();
+}
+async function performSync(interactive, retry = 0) {
+  const remote = await readRemoteState(interactive);
+  const localBefore = normalizeState(state);
+  const remoteNormalized = remote.exists ? normalizeState(remote.data) : defaultState();
+  const merged = remote.exists ? mergeStates(localBefore, remoteNormalized) : localBefore;
+  const localChanged = fingerprint(merged) !== fingerprint(localBefore);
+  const remoteChanged = !remote.exists || fingerprint(merged) !== fingerprint(remoteNormalized);
+  state = merged;
+  if (localChanged) persistState({touch: false, scheduleSync: false, render: true});
+  if (remoteChanged) {
+    state.meta.updatedAt = nowIso();
+    state.meta.updatedBy = deviceId;
+    try {
+      await writeRemoteState(state, remote.etag, interactive);
+    } catch (error) {
+      if (error.code === 'etag-conflict' && retry < 1) return performSync(interactive, retry + 1);
+      throw error;
+    }
+    persistState({touch: false, scheduleSync: false, render: false});
+  }
+}
+async function syncNow({interactive = false, reason = 'Manuell'} = {}) {
+  if (!syncConfigured() || !currentAccount) {
+    setSyncStatus('signedout', 'Nicht angemeldet', 'Die Daten bleiben lokal gespeichert.');
+    return false;
+  }
+  if (!navigator.onLine) {
+    setSyncStatus('offline', 'Offline', 'Änderungen bleiben lokal und werden später übertragen.');
+    return false;
+  }
+  if (syncInFlight) return syncInFlight;
+  syncInFlight = (async () => {
+    try {
+      setSyncStatus('syncing', 'Synchronisiere…', reason);
+      await performSync(interactive);
+      const label = new Date().toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
+      setSyncStatus('synced', 'Synchronisiert', `Stand ${label}`);
+      renderAll();
+      return true;
+    } catch (error) {
+      console.error(error);
+      const text = error?.message || String(error);
+      if (/Anmeldung wird geöffnet/.test(text)) return false;
+      setSyncStatus('error', 'Sync-Fehler', text);
+      return false;
+    } finally {
+      syncInFlight = null;
+    }
+  })();
+  return syncInFlight;
+}
+function queueCloudSync() {
+  if (!syncConfigured() || !currentAccount) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncNow({interactive: false, reason: 'Lokale Änderung'}), 1200);
+}
+
+$('syncConfigForm').onsubmit = e => {
+  e.preventDefault();
+  const clientId = $('syncClientId').value.trim();
+  const tenantId = $('syncTenantId').value.trim();
+  const redirectUri = $('syncRedirectUri').value.trim();
+  if (!isGuid(clientId) || !isGuid(tenantId)) {
+    alert('Client-ID und Mandanten-ID müssen gültige GUIDs sein.');
+    return;
+  }
+  if (!/^https:\/\//i.test(redirectUri)) {
+    alert('Die Redirect-URI muss eine HTTPS-Adresse sein.');
+    return;
+  }
+  localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify({clientId, tenantId, redirectUri}));
+  alert('Microsoft-Konfiguration gespeichert. Die App wird neu geladen.');
+  location.reload();
+};
+$('syncLoginBtn').onclick = () => loginMicrosoft().catch(error => { console.error(error); setSyncStatus('error', 'Anmeldefehler', error.message || String(error)); });
+$('syncLogoutBtn').onclick = () => logoutMicrosoft().catch(error => { console.error(error); setSyncStatus('error', 'Abmeldefehler', error.message || String(error)); });
+$('syncNowBtn').onclick = () => syncNow({interactive: true, reason: 'Manuell'});
+
+window.addEventListener('online', () => syncNow({interactive: false, reason: 'Internetverbindung wiederhergestellt'}));
+window.addEventListener('offline', () => setSyncStatus('offline', 'Offline', 'Änderungen bleiben lokal gespeichert.'));
+window.addEventListener('focus', () => { if (document.visibilityState === 'visible') syncNow({interactive: false, reason: 'App geöffnet'}); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow({interactive: false, reason: 'App geöffnet'}); });
+setInterval(() => { if (document.visibilityState === 'visible') syncNow({interactive: false, reason: 'Automatischer Abgleich'}); }, 60000);
+
+/* Direkter Excel-Export über den lokalen Windows-Helfer */
+function validateBillingSelection(year, month) {
+  const monthStart = `${year}-${pad2(month)}-01`;
+  const monthEnd = monthLastDate(year, month);
+  const cases = state.cases.filter(c => (!c.approvalFrom || c.approvalFrom <= monthEnd) && (!c.approvalTo || c.approvalTo >= monthStart));
+  if (!cases.length) return 'Für diesen Monat gibt es keine abzurechnenden Fälle.';
+  if (!state.prices.some(p => Number(p.year) === year)) return `Für ${year} sind noch keine Preise hinterlegt.`;
+  return '';
+}
+async function startExcelExport() {
+  const year = Number($('billingYear').value);
+  const month = Number($('billingMonth').value);
+  const msg = $('billingMessage');
+  const validation = validateBillingSelection(year, month);
+  if (validation) { msg.textContent = validation; return; }
+  if (!isWindows()) {
+    msg.textContent = 'Die Excel-Abrechnung wird am Windows-PC erstellt. Öffne JH Assist dort und starte den Export erneut.';
+    return;
+  }
+  if (!currentAccount) {
+    msg.textContent = 'Bitte zuerst unter Einstellungen mit Microsoft anmelden.';
+    return;
+  }
+  if (!navigator.onLine) {
+    msg.textContent = 'Für die Excel-Abrechnung muss der aktuelle Datenstand zuerst mit OneDrive synchronisiert werden.';
+    return;
+  }
+  const requiredUpdatedAt = state.meta.updatedAt || nowIso();
+  void syncNow({interactive: false, reason: 'Vor Excel-Export'});
+  msg.textContent = 'Der lokale Excel-Helfer wird geöffnet und wartet bei Bedarf kurz auf den OneDrive-Abgleich. Bestätige gegebenenfalls die Browserabfrage.';
+  const protocolUrl = `jhassist://export?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}&after=${encodeURIComponent(requiredUpdatedAt)}`;
+  window.location.href = protocolUrl;
+}
+$('exportBillingDataBtn').onclick = startExcelExport;
+$('billingMonth').onchange = renderBillingStatus;
+$('billingYear').oninput = renderBillingStatus;
 
 const quarterTimes = [];
-for (let hour = 0; hour < 24; hour += 1) {
-  for (const minute of [0, 15, 30, 45]) quarterTimes.push(`${pad2(hour)}:${pad2(minute)}`);
-}
-const timeOptions = quarterTimes.map(time => `<option value="${time}">${time}</option>`).join('');
+for (let h = 0; h < 24; h++) for (const m of [0, 15, 30, 45]) quarterTimes.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+const timeOptions = quarterTimes.map(t => `<option value="${t}">${t}</option>`).join('');
 $('start').innerHTML = timeOptions;
 $('end').innerHTML = timeOptions;
 $('start').value = '09:00';
 $('end').value = '10:00';
 
-const monthNames = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
-$('billingMonth').innerHTML = monthNames.map((name, index) => `<option value="${index + 1}">${name}</option>`).join('');
+const monthNames = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+$('billingMonth').innerHTML = monthNames.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
 $('billingMonth').value = String(new Date().getMonth() + 1);
 $('billingYear').value = new Date().getFullYear();
-
 const reportStart = new Date();
 reportStart.setMonth(reportStart.getMonth() - 6);
-$('reportFrom').value = localDateString(reportStart);
-$('reportTo').value = localDateString();
-$('date').value = localDateString();
+$('reportFrom').value = localIsoDate(reportStart);
+$('reportTo').value = localIsoDate();
+const today = localIsoDate();
+$('date').value = today;
 $('hoursYear').value = new Date().getFullYear();
 $('priceYear').value = new Date().getFullYear();
 
-renderAll();
-initializeOneDrive().catch(error => console.error('OneDrive-Initialisierung fehlgeschlagen.', error));
-
+persistState({touch: false, scheduleSync: false, render: true});
+initializeMicrosoftAuth();
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(error => console.warn('Service Worker konnte nicht registriert werden.', error)));
 }

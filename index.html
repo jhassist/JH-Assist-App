@@ -9,21 +9,20 @@
 <meta name="apple-mobile-web-app-title" content="JH Assist">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<title>JH Assist 1.1</title>
+<title>JH Assist 1.1.0</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17202b;background:#eef2f5}
 *{box-sizing:border-box}body{margin:0}header{background:#fff;padding:16px;border-bottom:1px solid #d9e0e6;position:sticky;top:0;z-index:10}
-header>div{max-width:820px;margin:auto;display:flex;justify-content:space-between;align-items:center;gap:10px}h1{font-size:22px;margin:0}.header-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.version{font-size:12px;color:#637080}
-.sync-pill{font-size:12px;padding:5px 9px;border-radius:999px;background:#e6edf2;color:#33434f}.sync-pill.synced,.sync-pill.ready{background:#dcefe4;color:#215c36}.sync-pill.syncing{background:#dceaf3;color:#174e70}.sync-pill.offline,.sync-pill.local,.sync-pill.signed_out{background:#fff1c7;color:#745400}.sync-pill.error{background:#f5dada;color:#7b2525}
+header>.header-inner{max-width:820px;margin:auto;display:flex;justify-content:space-between;align-items:center;gap:12px}.brand{display:flex;flex-direction:column;align-items:flex-start}h1{font-size:22px;margin:0}.version{font-size:12px;color:#637080}
 main{max-width:820px;margin:auto;padding:14px}.tabs{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin-bottom:14px}.tab{background:#dfe8ee;color:#20303d;padding:10px 5px}.tab.active{background:#174e70;color:#fff}
 .card{background:#fff;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 10px rgba(0,0,0,.055)}h2{font-size:18px;margin:0 0 14px}h3{font-size:15px;margin:18px 0 10px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.full{grid-column:1/-1}label{font-size:13px;font-weight:650;display:block;margin-bottom:5px}
-input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1px solid #cbd4dc;padding:11px;background:#fff}input[readonly]{background:#f3f6f8;color:#52616d}textarea{min-height:95px;resize:vertical}button{border:0;background:#174e70;color:#fff;font-weight:700;cursor:pointer}.secondary{background:#e5ebef;color:#17202b}.danger{background:#8b3030}.small{width:auto;padding:8px 11px;font-size:13px}.row{display:flex;gap:8px;flex-wrap:wrap}.item{padding:13px 0;border-top:1px solid #e5e9ed}.item:first-child{border-top:0}.muted{color:#667483;font-size:13px}.hidden{display:none!important}.badge{display:inline-block;padding:3px 8px;border-radius:99px;background:#e6edf2;font-size:12px;margin-left:6px}.badge.warn{background:#fff1c7}.badge.ok{background:#dcefe4}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.stat{background:#f3f6f8;padding:12px;border-radius:12px}.stat strong{font-size:20px;display:block}.message{margin-top:10px;font-weight:600}.toolbar{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.toolbar>div{flex:1;min-width:170px}.notice{border-left:4px solid #174e70;background:#f2f7fa;padding:11px 12px;border-radius:8px}.checkbox-label{display:flex;gap:9px;align-items:center;font-weight:600}.checkbox-label input{width:auto}
-@media(max-width:600px){.grid,.stats{grid-template-columns:1fr}.full{grid-column:auto}.tabs{grid-template-columns:1fr 1fr}header>div{align-items:flex-start}.header-status{max-width:55%}}
+input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1px solid #cbd4dc;padding:11px;background:#fff}textarea{min-height:95px;resize:vertical}button{border:0;background:#174e70;color:#fff;font-weight:700;cursor:pointer}.secondary{background:#e5ebef;color:#17202b}.danger{background:#8b3030}.small{width:auto;padding:8px 11px;font-size:13px}.row{display:flex;gap:8px;flex-wrap:wrap}.item{padding:13px 0;border-top:1px solid #e5e9ed}.item:first-child{border-top:0}.muted{color:#667483;font-size:13px}.hidden{display:none!important}.badge{display:inline-block;padding:3px 8px;border-radius:99px;background:#e6edf2;font-size:12px;margin-left:6px}.badge.warn{background:#fff1c7}.badge.ok{background:#dcefe4}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.stat{background:#f3f6f8;padding:12px;border-radius:12px}.stat strong{font-size:20px;display:block}.message{margin-top:10px;font-weight:600}.sync-pill{display:inline-flex;align-items:center;padding:6px 10px;border-radius:99px;font-size:12px;font-weight:700;background:#e6edf2;color:#30404d;white-space:nowrap}.sync-pill.synced{background:#dcefe4;color:#215a36}.sync-pill.syncing{background:#e8eef8;color:#244b7a}.sync-pill.offline,.sync-pill.setup,.sync-pill.signedout{background:#fff1c7;color:#795d12}.sync-pill.error{background:#f5dede;color:#7e2727}.toolbar{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.toolbar>div{flex:1;min-width:170px}
+@media(max-width:600px){.grid,.stats{grid-template-columns:1fr}.full{grid-column:auto}.tabs{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
-<header><div><h1>JH Assist</h1><div class="header-status"><span id="syncBadge" class="sync-pill local">Lokal</span><span class="version">Version 1.1.0</span></div></div></header>
+<header><div class="header-inner"><div class="brand"><h1>JH Assist</h1><span class="version">Version 1.1.0</span></div><span id="syncBadge" class="sync-pill setup" title="Synchronisierungsstatus">Nicht eingerichtet</span></div></header>
 <main>
 <nav class="tabs">
 <button class="tab active" data-view="entry">Leistung</button>
@@ -39,12 +38,13 @@ input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1
 <form id="serviceForm" class="grid">
 <input id="serviceId" type="hidden">
 <div class="full"><label>Fall</label><select id="serviceCase" required></select></div>
-<div><label>Datum</label><input id="date" type="date" required></div><div></div>
+<div><label>Datum</label><input id="date" type="date" required></div>
+<div></div>
 <div><label>Beginn</label><select id="start" required></select></div>
 <div><label>Ende</label><select id="end" required></select></div>
 <div class="full"><label>Tätigkeit</label><input id="activity" value="einzelfallbezogene Tätigkeit" required></div>
 <div class="full"><label>Verlaufsnotiz (optional)</label><textarea id="note" placeholder="Kurze sachliche Notiz zum Verlauf"></textarea></div>
-<div class="full"><label class="checkbox-label"><input id="reportUse" type="checkbox" checked> Für die Verlaufsdokumentation verwenden</label></div>
+<div class="full"><label style="display:flex;gap:9px;align-items:center;font-weight:600"><input id="reportUse" type="checkbox" checked style="width:auto"> Für die Verlaufsdokumentation verwenden</label></div>
 <div class="full row"><button id="saveServiceBtn" type="submit" class="small">Leistung speichern</button><button id="cancelServiceEdit" type="button" class="secondary small hidden">Bearbeitung abbrechen</button></div>
 </form><p id="serviceMessage" class="message muted"></p></div>
 <div class="card"><h2>Letzte Leistungen</h2><div id="services"></div></div>
@@ -74,7 +74,7 @@ input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1
 
 <section id="view-billing" class="view hidden">
 <div class="card"><h2>Monatsabrechnung</h2>
-<p class="muted">Die aktuellen Daten werden vor dem Export mit OneDrive synchronisiert. Der installierte Windows-Exporthelfer befüllt anschließend automatisch deine Excel-Vorlage.</p>
+<p class="muted">Die App synchronisiert den aktuellen Datenstand automatisch mit OneDrive. Der lokale Windows-Helfer befüllt anschließend die Originalvorlage direkt mit Microsoft Excel.</p>
 <div class="grid">
 <div><label>Monat</label><select id="billingMonth"></select></div>
 <div><label>Jahr</label><input id="billingYear" type="number" min="2020" max="2100"></div>
@@ -82,14 +82,14 @@ input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1
 </div>
 <p id="billingMessage" class="message muted"></p><div id="billingStatus" class="muted" style="margin-top:10px"></div>
 </div>
-<div class="card"><h2>Einmalige Windows-Einrichtung</h2>
-<p class="muted">Im Ordner <strong>excel-engine</strong> einmal <strong>INSTALL-EXPORTHELFER.cmd</strong> starten. Danach genügt der Knopf „Excel-Abrechnung erstellen“. Die fertige Datei wird automatisch unter <strong>Dokumente\JH Assist\Abrechnungen</strong> gespeichert.</p>
+<div class="card"><h2>Einmalige Voraussetzung am Windows-PC</h2>
+<p class="muted">Der Excel-Helfer muss einmal mit <strong>INSTALLIEREN-EXCEL-HELFER.cmd</strong> aus dem Ordner <strong>excel-engine</strong> eingerichtet werden. Danach genügt der Knopf oben; eine JSON-Datei muss nicht mehr ausgewählt werden.</p>
 </div>
 </section>
 
 <section id="view-reports" class="view hidden">
 <div class="card"><h2>Verlaufsdokumentation</h2>
-<p class="muted">Der Arbeitsentwurf verwendet ausschließlich die markierten Verlaufsnotizen. Es werden keine Inhalte ergänzt oder erfunden.</p>
+<p class="muted">Diese Version erstellt einen nachvollziehbaren Arbeitsentwurf ausschließlich aus den markierten Verlaufsnotizen. Es werden keine Inhalte ergänzt oder erfunden.</p>
 <div class="grid">
 <div class="full"><label>Fall</label><select id="reportCase"></select></div>
 <div><label>Zeitraum von</label><input id="reportFrom" type="date"></div>
@@ -102,27 +102,27 @@ input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1
 </section>
 
 <section id="view-settings" class="view hidden">
-<div class="card"><h2>OneDrive-Synchronisierung</h2>
-<p class="notice">Nach der einmaligen Einrichtung arbeiten PC und iPhone automatisch mit demselben Datenbestand. Im normalen Ablauf sind keine JSON-Dateien mehr nötig.</p>
-<form id="syncConfigForm" class="grid" style="margin-top:14px">
-<div class="full"><label>Application (Client) ID</label><input id="syncClientId" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000"></div>
-<div class="full"><label>Directory (Tenant) ID</label><input id="syncTenantId" autocomplete="off" placeholder="organizations oder Mandanten-ID"></div>
-<div class="full"><label>Weiterleitungs-URI für die App-Registrierung</label><input id="syncRedirectUri" readonly></div>
-<div class="full"><label class="checkbox-label"><input id="syncAuto" type="checkbox" checked> Änderungen automatisch synchronisieren</label></div>
-<div class="full row"><button type="submit" class="small">Konfiguration speichern</button><button id="syncSignInBtn" type="button" class="secondary small">Mit Microsoft anmelden</button><button id="syncNowBtn" type="button" class="secondary small">Jetzt synchronisieren</button><button id="syncSignOutBtn" type="button" class="danger small">Abmelden</button></div>
-</form>
-<p id="syncStatus" class="message muted"></p>
-<p><a id="syncFolderLink" class="hidden" target="_blank" rel="noopener">Privaten OneDrive-App-Ordner öffnen</a></p>
-<p class="muted">Für die einmalige Microsoft-Entra-Einrichtung siehe <strong>docs/ONEDRIVE-EINRICHTUNG.md</strong>. Es darf kein Client-Geheimnis in die App eingetragen werden.</p>
-</div>
 <div class="card"><h2>Jährliche Preise</h2>
 <form id="priceForm" class="grid"><div><label>Jahr</label><input id="priceYear" type="number" min="2020" max="2100" required></div><div></div><div><label>Preis Stadt je Fachleistungsstunde (€)</label><input id="priceCity" type="number" min="0" step="0.01" required></div><div><label>Preis Landkreis je Fachleistungsstunde (€)</label><input id="priceCounty" type="number" min="0" step="0.01" required></div><div class="full"><button type="submit">Preise speichern</button></div></form><div id="prices"></div></div>
 <div class="card"><h2>Änderungsprotokoll</h2><div id="auditLog"></div></div>
-<div class="card"><h2>Notfallsicherung</h2><div class="row"><button id="exportBtn" type="button" class="secondary small">Vollsicherung speichern</button><label class="secondary small" style="cursor:pointer">Vollsicherung wiederherstellen<input id="importFile" type="file" accept="application/json" hidden></label><button id="clearBtn" type="button" class="danger small">Alle lokalen Daten löschen</button></div><p class="muted">Die Vollsicherung ist nur für Notfälle oder einen Gerätewechsel vorgesehen. Die laufende Synchronisierung erfolgt automatisch über OneDrive.</p></div>
+<div class="card"><h2>Microsoft-OneDrive-Synchronisierung</h2>
+<p class="muted">Fälle, Preise, Leistungen und Verlaufsnotizen werden automatisch zwischen PC und iPhone abgeglichen. Die Daten liegen ausschließlich im privaten App-Ordner deines Microsoft-Kontos.</p>
+<form id="syncConfigForm" class="grid">
+<div class="full"><label>Microsoft Client-ID</label><input id="syncClientId" autocomplete="off" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></div>
+<div class="full"><label>Microsoft Mandanten-ID (Tenant-ID)</label><input id="syncTenantId" autocomplete="off" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></div>
+<div class="full"><label>Registrierte Redirect-URI</label><input id="syncRedirectUri" type="url" readonly></div>
+<div class="full"><button type="submit" class="secondary">Microsoft-Konfiguration speichern</button></div>
+</form>
+<div class="row" style="margin-top:14px"><button id="syncLoginBtn" type="button" class="small">Mit Microsoft anmelden</button><button id="syncNowBtn" type="button" class="secondary small">Jetzt synchronisieren</button><button id="syncLogoutBtn" type="button" class="secondary small hidden">Abmelden</button></div>
+<p id="syncAccount" class="muted" style="margin-top:12px">Nicht bei Microsoft angemeldet.</p>
+<p id="syncStatusText" class="message muted">Noch nicht eingerichtet.</p>
+<a id="cloudFolderLink" class="hidden" target="_blank" rel="noopener">OneDrive-App-Ordner öffnen</a>
+</div>
+<div class="card"><h2>Vollständige Datensicherung</h2><div class="row"><button id="exportBtn" type="button" class="secondary small">Vollsicherung exportieren</button><label class="secondary small" style="cursor:pointer">Vollsicherung importieren<input id="importFile" type="file" accept="application/json" hidden></label><button id="clearBtn" type="button" class="danger small">Alle lokalen Daten löschen</button></div><p class="muted">Diese Datei ist nur eine zusätzliche Notfallsicherung. Der normale PC–iPhone-Abgleich erfolgt automatisch über OneDrive.</p></div>
 </section>
 </main>
 <script src="./vendor/msal-browser.min.js"></script>
-<script src="./sync.js"></script>
+<script src="./sync-config.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>
