@@ -1,5 +1,12 @@
-# JH Assist 1.0.0 – öffentliche PWA-Dateien
+# JH Assist – öffentliche Programmdateien
 
-Dieser Ordner enthält ausschließlich die Programmdateien für GitHub Pages. Den Inhalt in die oberste Ebene des öffentlichen Repositorys `JH-Assist-App` kopieren.
+Dieser Ordner enthält ausschließlich die statischen Programmdateien für GitHub Pages.
 
-Keine Klientendaten, JSON-Exporte oder Excel-Dateien in das öffentliche Repository hochladen.
+Nicht hier ablegen:
+
+- Klientendaten
+- Sicherungsdateien
+- Excel-Vorlagen oder Abrechnungen
+- Dateien aus `excel-engine`
+
+Die Fachdaten werden nach der Microsoft-Anmeldung ausschließlich lokal und im privaten OneDrive-App-Ordner gespeichert.
