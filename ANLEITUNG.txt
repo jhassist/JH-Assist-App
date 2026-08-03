@@ -1,0 +1,21 @@
+JH Assist 1.1.2 - Fix fuer das Aenderungsprotokoll
+
+Wichtig: Die drei Dateien liegen absichtlich direkt in diesem Ordner.
+Nicht den Ordner selbst bei GitHub hochladen, sondern die Dateien einzeln.
+
+1. Bei GitHub das Repository JH-Assist-App oeffnen.
+2. Im Hauptverzeichnis diese drei vorhandenen Dateien ersetzen:
+   - index.html
+   - app.js
+   - sw.js
+3. Die Aenderung mit Commit changes bestaetigen.
+4. Etwa 1 bis 2 Minuten warten.
+5. JH Assist vollstaendig schliessen und neu oeffnen.
+
+Kontrolle:
+Oben in JH Assist muss Version 1.1.2 stehen.
+Unter Einstellungen wird nur noch der Button
+"Aenderungsprotokoll oeffnen" angezeigt.
+
+Die Dateien sync-config.js, manifest.webmanifest und die Microsoft-IDs
+werden nicht veraendert.

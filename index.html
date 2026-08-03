@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="JH Assist">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<title>JH Assist 1.1.0</title>
+<title>JH Assist 1.1.2</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17202b;background:#eef2f5}
 *{box-sizing:border-box}body{margin:0}header{background:#fff;padding:16px;border-bottom:1px solid #d9e0e6;position:sticky;top:0;z-index:10}
@@ -22,7 +22,7 @@ input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1
 </style>
 </head>
 <body>
-<header><div class="header-inner"><div class="brand"><h1>JH Assist</h1><span class="version">Version 1.1.0</span></div><span id="syncBadge" class="sync-pill setup" title="Synchronisierungsstatus">Nicht eingerichtet</span></div></header>
+<header><div class="header-inner"><div class="brand"><h1>JH Assist</h1><span class="version">Version 1.1.2</span></div><span id="syncBadge" class="sync-pill setup" title="Synchronisierungsstatus">Nicht eingerichtet</span></div></header>
 <main>
 <nav class="tabs">
 <button class="tab active" data-view="entry">Leistung</button>
@@ -101,10 +101,20 @@ input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1
 </div>
 </section>
 
+<section id="view-audit" class="view hidden">
+<div class="card">
+<div class="row" style="justify-content:space-between;align-items:center">
+<h2 style="margin:0">Änderungsprotokoll</h2>
+<button id="closeAuditLogBtn" type="button" class="secondary small">Zurück zu Einstellungen</button>
+</div>
+<div id="auditLog" style="margin-top:14px"></div>
+</div>
+</section>
+
 <section id="view-settings" class="view hidden">
 <div class="card"><h2>Jährliche Preise</h2>
 <form id="priceForm" class="grid"><div><label>Jahr</label><input id="priceYear" type="number" min="2020" max="2100" required></div><div></div><div><label>Preis Stadt je Fachleistungsstunde (€)</label><input id="priceCity" type="number" min="0" step="0.01" required></div><div><label>Preis Landkreis je Fachleistungsstunde (€)</label><input id="priceCounty" type="number" min="0" step="0.01" required></div><div class="full"><button type="submit">Preise speichern</button></div></form><div id="prices"></div></div>
-<div class="card"><h2>Änderungsprotokoll</h2><div id="auditLog"></div></div>
+<div class="card"><button id="openAuditLogBtn" type="button" class="secondary">Änderungsprotokoll öffnen</button></div>
 <div class="card"><h2>Microsoft-OneDrive-Synchronisierung</h2>
 <p class="muted">Fälle, Preise, Leistungen und Verlaufsnotizen werden automatisch zwischen PC und iPhone abgeglichen. Die Daten liegen ausschließlich im privaten App-Ordner deines Microsoft-Kontos.</p>
 <form id="syncConfigForm" class="grid">
@@ -121,8 +131,8 @@ input,select,textarea,button{width:100%;font:inherit;border-radius:10px;border:1
 <div class="card"><h2>Vollständige Datensicherung</h2><div class="row"><button id="exportBtn" type="button" class="secondary small">Vollsicherung exportieren</button><label class="secondary small" style="cursor:pointer">Vollsicherung importieren<input id="importFile" type="file" accept="application/json" hidden></label><button id="clearBtn" type="button" class="danger small">Alle lokalen Daten löschen</button></div><p class="muted">Diese Datei ist nur eine zusätzliche Notfallsicherung. Der normale PC–iPhone-Abgleich erfolgt automatisch über OneDrive.</p></div>
 </section>
 </main>
-<script src="./vendor/msal-browser.min.js"></script>
-<script src="./sync-config.js"></script>
-<script src="./app.js"></script>
+<script src="./vendor/msal-browser.min.js?v=1.1.2"></script>
+<script src="./sync-config.js?v=1.1.2"></script>
+<script src="./app.js?v=1.1.2"></script>
 </body>
 </html>

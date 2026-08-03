@@ -189,11 +189,23 @@ function caseById(id) {
 }
 
 function showView(name) {
+  const view = $('view-' + name);
+  if (!view) return;
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
-  $('view-' + name).classList.remove('hidden');
-  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+  view.classList.remove('hidden');
+  const activeTab = name === 'audit' ? 'settings' : name;
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.view === activeTab));
 }
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => showView(b.dataset.view));
+$('openAuditLogBtn').onclick = () => {
+  renderAuditLog();
+  showView('audit');
+  scrollTo({top: 0, behavior: 'smooth'});
+};
+$('closeAuditLogBtn').onclick = () => {
+  showView('settings');
+  scrollTo({top: 0, behavior: 'smooth'});
+};
 
 function renderSelects() {
   const active = activeCases();
